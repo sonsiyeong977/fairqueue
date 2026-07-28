@@ -63,7 +63,7 @@ async function releaseEscrow(recipientPubkey, amountSol) {
   return sig;
 }
 
-// ── Gemini: 제안된 좌석이 유저 조건에 맞는지 판단 ──────────────────────────────
+// ── Gemini: 제안된 좌석이 유저 조건에 맞는지 1차 판단 ──────────────────────────────
 async function decideOffer(userConditions, offeredSeat) {
   const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
   const prompt = `
@@ -90,6 +90,45 @@ ${JSON.stringify(offeredSeat, null, 2)}
   const result = await model.generateContent(prompt);
   const cleaned = result.response.text().replace(/```json|```/g, "").trim();
   return JSON.parse(cleaned);
+}
+
+// ── 결정론적 검증 레이어 ──────────────────────────────
+// Gemini의 판단을 그대로 실행하지 않고, 실제 숫자를 코드로 다시 확인한다.
+// LLM의 환각/오판으로 인한 결제 사고를 막기 위한 최종 방어선.
+function verifyDecisionDeterministically(userConditions, offeredSeat, geminiDecision) {
+  if (!offeredSeat) {
+    // 제안된 좌석 자체가 없으면 무조건 REFUND (Gemini 판단과 무관)
+    return {
+      finalDecision: "REFUND",
+      overridden: geminiDecision.decision !== "REFUND",
+      verifyNote: "제안된 좌석 없음 → 강제 REFUND",
+    };
+  }
+
+  const { primary, fallback_rules = [] } = userConditions;
+
+  const matchesPrimary =
+    offeredSeat.grade === primary.grade &&
+    offeredSeat.price_krw <= primary.max_price_krw;
+
+  const matchesFallback = fallback_rules.some(
+    (rule) => offeredSeat.grade === rule.grade && offeredSeat.price_krw <= rule.max_price_krw
+  );
+
+  let correctDecision;
+  if (matchesPrimary) correctDecision = "SETTLE_PRIMARY";
+  else if (matchesFallback) correctDecision = "SETTLE_FALLBACK";
+  else correctDecision = "REFUND";
+
+  const overridden = correctDecision !== geminiDecision.decision;
+
+  return {
+    finalDecision: correctDecision,
+    overridden,
+    verifyNote: overridden
+      ? `Gemini 판단(${geminiDecision.decision})이 실제 조건과 불일치하여 ${correctDecision}로 강제 수정됨`
+      : "Gemini 판단이 결정론적 검증을 통과함",
+  };
 }
 
 // ── 핵심 엔드포인트: POST /settle ──────────────────────────────
@@ -123,18 +162,32 @@ app.post("/settle", async (req, res) => {
     const fundSig = await fundEscrow(maxAmount);
     console.log(`   에스크로 예치 완료: ${fundSig}`);
 
-    // STEP 2. 판단
-    let decisionResult;
+    // STEP 2. Gemini 1차 판단
+    let geminiDecision;
     if (!offered_seat) {
-      decisionResult = { decision: "REFUND", reasoning: "플랫폼이 제안한 좌석이 없음 (매진)" };
+      geminiDecision = { decision: "REFUND", reasoning: "플랫폼이 제안한 좌석이 없음 (매진)" };
     } else {
-      decisionResult = await decideOffer(user_conditions, offered_seat);
+      geminiDecision = await decideOffer(user_conditions, offered_seat);
     }
-    console.log("   판단 결과:", decisionResult);
+    console.log("   Gemini 판단:", geminiDecision);
 
-    // STEP 3. 해제 (결제 or 환불)
+    // STEP 3. 결정론적 재검증 (최종 실행 여부는 여기서 확정)
+    const verification = verifyDecisionDeterministically(
+      user_conditions,
+      offered_seat,
+      geminiDecision
+    );
+    console.log("   결정론적 검증:", verification);
+
+    if (verification.overridden) {
+      console.warn(`   Gemini 판단이 재검증에서 수정됨: ${verification.verifyNote}`);
+    }
+
+    const finalDecision = verification.finalDecision;
+
+    // STEP 4. 해제 (결제 or 환불) — 검증을 통과한 finalDecision 기준으로만 실행
     let recipient, finalAmount;
-    if (decisionResult.decision === "REFUND") {
+    if (finalDecision === "REFUND") {
       recipient = agentWallet.publicKey.toBase58();
       finalAmount = maxAmount;
     } else {
@@ -143,12 +196,12 @@ app.post("/settle", async (req, res) => {
     }
 
     const releaseSig = await releaseEscrow(recipient, finalAmount);
-    console.log(`   ${decisionResult.decision} 완료: ${releaseSig}`);
+    console.log(`   ${finalDecision} 완료: ${releaseSig}`);
 
-    // STEP 4. 거스름돈 반환 (있으면)
+    // STEP 5. 거스름돈 반환 (있으면)
     let changeSig = null;
     const change = maxAmount - finalAmount;
-    if (decisionResult.decision !== "REFUND" && change > 0.0001) {
+    if (finalDecision !== "REFUND" && change > 0.0001) {
       changeSig = await releaseEscrow(agentWallet.publicKey.toBase58(), change);
       console.log(`   거스름돈 반환 완료: ${changeSig}`);
     }
@@ -156,8 +209,11 @@ app.post("/settle", async (req, res) => {
     // 팀원 서버가 받을 최종 응답
     res.json({
       user_id,
-      decision: decisionResult.decision,
-      reasoning: decisionResult.reasoning,
+      gemini_decision: geminiDecision.decision,
+      gemini_reasoning: geminiDecision.reasoning,
+      final_decision: finalDecision,
+      overridden_by_verification: verification.overridden,
+      verify_note: verification.verifyNote,
       fund_tx: fundSig,
       settle_tx: releaseSig,
       change_tx: changeSig,
@@ -175,5 +231,5 @@ app.post("/settle", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`💳 Settle server running on http://localhost:${PORT}`);
-  console.log(`   POST /settle - 좌석 제안 기반 결제/환불 처리`);
+  console.log(`   POST /settle - 좌석 제안 기반 결제/환불 처리 (Gemini 판단 + 결정론적 재검증)`);
 });
