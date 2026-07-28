@@ -141,10 +141,10 @@ SETTLE_FALLBACK       │
 
 | 영역 | 기술 |
 |:---|:---|
-| 🧠 AI | Google Gemini (`gemini-flash-latest`) |
-| ◎ 결제/온체인 | Solana (Devnet), `@solana/web3.js` |
-| ☁️ 백엔드 | Node.js, Express |
-| 🔑 지갑/서명 | Agent keypair 기반 자율 서명 (승인 팝업 없음) |
+| AI | Google Gemini (`gemini-flash-latest`) |
+| 결제/온체인 | Solana (Devnet), `@solana/web3.js` |
+| 백엔드 | Node.js, Express |
+| 지갑/서명 | Agent keypair 기반 자율 서명 (승인 팝업 없음) |
 
 </div>
 
