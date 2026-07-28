@@ -17,6 +17,8 @@ const {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
 
+const PLATFORM_API = "http://localhost:3001";
+
 // ── 지갑 로드 ──────────────────────────────
 const agentKeypairPath = path.join(os.homedir(), ".config", "solana", "id.json");
 const agentSecret = JSON.parse(fs.readFileSync(agentKeypairPath, "utf8"));
@@ -25,10 +27,24 @@ const agentWallet = Keypair.fromSecretKey(Uint8Array.from(agentSecret));
 const escrowSecret = JSON.parse(fs.readFileSync("escrow-wallet.json", "utf8"));
 const escrowWallet = Keypair.fromSecretKey(Uint8Array.from(escrowSecret));
 
-// 가상 판매자 지갑 (데모용, 매 실행마다 새로 생성 — 실제론 고정 주소로 관리)
 const sellerWallet = Keypair.generate();
 
-// ── STEP 1: 자연어 → 조건 파싱 (fallback_rules 포함) ──────────────────────────────
+// ── 플랫폼 시뮬레이터 API 호출 ──────────────────────────────
+async function setSeatState(event, availableSeats) {
+  await fetch(`${PLATFORM_API}/seats/${encodeURIComponent(event)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ availableSeats }),
+  });
+}
+
+async function getSeatState(event) {
+  const res = await fetch(`${PLATFORM_API}/seats/${encodeURIComponent(event)}`);
+  const data = await res.json();
+  return data.availableSeats;
+}
+
+// ── STEP 1: 자연어 → 조건 파싱 ──────────────────────────────
 async function parseCondition(userInput) {
   const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
   const prompt = `
@@ -52,7 +68,7 @@ async function parseCondition(userInput) {
   return JSON.parse(cleaned);
 }
 
-// ── STEP 2: 다단계 판단 (1차 → 대안 → 환불) ──────────────────────────────
+// ── STEP 2: 다단계 판단 ──────────────────────────────
 async function decideMultiStage(conditions, availableSeats) {
   const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
   const prompt = `
@@ -97,7 +113,7 @@ async function fundEscrow(amountSol) {
   console.log(`   Explorer: https://explorer.solana.com/tx/${sig}?cluster=devnet`);
 }
 
-// ── STEP 4: 에스크로 해제 (결제 or 환불) ──────────────────────────────
+// ── STEP 4: 에스크로 해제 ──────────────────────────────
 async function releaseEscrow(decision, recipientPubkey, amountSol) {
   const recipient = new PublicKey(recipientPubkey);
   const tx = new Transaction().add(
@@ -112,19 +128,29 @@ async function releaseEscrow(decision, recipientPubkey, amountSol) {
   console.log(`   Explorer: https://explorer.solana.com/tx/${sig}?cluster=devnet`);
 }
 
-// KRW → SOL 데모용 환산 (실제로는 실시간 시세 API 연동 필요, 여기선 고정 비율 사용)
 function krwToSol(krw) {
   return Number((krw / 10000000).toFixed(4)) || 0.01;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // ── 시나리오 러너 ──────────────────────────────
-async function runFairQueue(scenarioName, userInput, availableSeats) {
+async function runFairQueue(scenarioName, userInput, seatsForThisScenario) {
   console.log(`\n\n🎟️  ${scenarioName}\n`);
 
   console.log("========================================");
+  console.log("STEP 0. 플랫폼 시뮬레이터에 좌석 상태 설정");
+  console.log("========================================");
+  const conditionsPreview = await parseCondition(userInput);
+  await setSeatState(conditionsPreview.event, seatsForThisScenario);
+  console.log(`   "${conditionsPreview.event}" 좌석 상태 설정 완료`);
+
+  console.log("\n========================================");
   console.log("STEP 1. 유저 조건 파싱 (primary + fallback_rules)");
   console.log("========================================");
-  const conditions = await parseCondition(userInput);
+  const conditions = conditionsPreview;
   console.log(conditions);
 
   console.log("\n========================================");
@@ -134,9 +160,10 @@ async function runFairQueue(scenarioName, userInput, availableSeats) {
   await fundEscrow(maxAmount);
 
   console.log("\n========================================");
-  console.log("STEP 3. 실제 판매 가능 좌석과 비교하여 다단계 판단");
+  console.log("STEP 3. 플랫폼 API에서 실제 좌석 조회 후 다단계 판단");
   console.log("========================================");
-  console.log("구매 가능 좌석:", availableSeats);
+  const availableSeats = await getSeatState(conditions.event);
+  console.log("   API로 조회한 구매 가능 좌석:", availableSeats);
   const decisionResult = await decideMultiStage(conditions, availableSeats);
   console.log(decisionResult);
 
@@ -147,15 +174,14 @@ async function runFairQueue(scenarioName, userInput, availableSeats) {
   let recipient, finalAmount;
   if (decisionResult.decision === "REFUND") {
     recipient = agentWallet.publicKey.toBase58();
-    finalAmount = maxAmount; // 예치한 전액 환불
+    finalAmount = maxAmount;
   } else {
     recipient = sellerWallet.publicKey.toBase58();
-    finalAmount = krwToSol(decisionResult.selected_price_krw); // 실제 낙찰 금액만큼만 결제
+    finalAmount = krwToSol(decisionResult.selected_price_krw);
   }
 
   await releaseEscrow(decisionResult.decision, recipient, finalAmount);
 
-  // SETTLE인데 결제 금액이 예치 금액보다 적으면, 차액은 유저에게 반환 (거스름돈 개념)
   const change = maxAmount - finalAmount;
   if (decisionResult.decision !== "REFUND" && change > 0.0001) {
     console.log(`\n   차액 ${change.toFixed(4)} SOL 유저에게 반환...`);
@@ -167,34 +193,31 @@ async function runFairQueue(scenarioName, userInput, availableSeats) {
 
 // ── 세 시나리오 순서대로 실행 ──────────────────────────────
 async function main() {
+  const userInput = "아이유 콘서트 R석, 20만원 이하로 1석 구해줘. 매진이면 S석도 15만원 이하로 괜찮아.";
+
   await runFairQueue(
     "시나리오 1: 1차 희망(R석) 그대로 확보 성공",
-    "아이유 콘서트 R석, 20만원 이하로 1석 구해줘. 매진이면 S석도 15만원 이하로 괜찮아.",
+    userInput,
     [{ grade: "R석", price_krw: 190000, count: 3 }]
   );
 
-  console.log("\n 다음 시나리오까지 15초 대기 (API 레이트리밋 방지)...\n");
+  console.log("\n 다음 시나리오까지 15초 대기...\n");
   await sleep(15000);
 
   await runFairQueue(
     "시나리오 2: 1차(R석) 매진, 대안(S석)으로 확보 성공",
-    "아이유 콘서트 R석, 20만원 이하로 1석 구해줘. 매진이면 S석도 15만원 이하로 괜찮아.",
+    userInput,
     [{ grade: "S석", price_krw: 120000, count: 2 }]
   );
 
-  console.log("\n 다음 시나리오까지 15초 대기 (API 레이트리밋 방지)...\n");
+  console.log("\n 다음 시나리오까지 15초 대기...\n");
   await sleep(15000);
 
   await runFairQueue(
     "시나리오 3: 1차, 대안 모두 매진 → 환불",
-    "아이유 콘서트 R석, 20만원 이하로 1석 구해줘. 매진이면 S석도 15만원 이하로 괜찮아.",
+    userInput,
     []
   );
-}
-
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 main();
