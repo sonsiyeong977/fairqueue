@@ -9,11 +9,11 @@
 [![Solana](https://img.shields.io/badge/Solana-Devnet-9945FF?style=for-the-badge&logo=solana&logoColor=white)](https://explorer.solana.com/?cluster=devnet)
 [![Google Cloud](https://img.shields.io/badge/Google_Cloud-Gemini-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white)](https://cloud.google.com/)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
-[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](#license)
+[![Status](https://img.shields.io/badge/Core_Pipeline-Verified_on_Devnet-brightgreen?style=for-the-badge)](#-검증-완료된-핵심-파이프라인)
 
 **Google Cloud x Solana AI Agentic Hackathon 2026 제출작**
 
-[문제](#-문제) · [해결책](#-해결책) · [아키텍처](#%EF%B8%8F-아키텍처) · [기술 스택](#-기술-스택) · [데모](#-데모-시나리오) · [실행 방법](#-로컬-실행-방법) · [팀](#-팀)
+[문제](#-문제) · [해결책](#-해결책) · [검증 상태](#-검증-완료된-핵심-파이프라인) · [아키텍처](#%EF%B8%8F-아키텍처) · [기술 스택](#-기술-스택) · [실행 방법](#-로컬-실행-방법) · [팀](#-팀)
 
 </div>
 
@@ -23,9 +23,7 @@
 
 <br>
 
-## 🚨 문제 의식 
-
-기존 티켓팅 시스템은 세 가지 고질적인 문제를 안고 있습니다.
+## 🚨 문제
 
 | 문제 | 영향 |
 |:---|:---|
@@ -38,7 +36,7 @@
 
 ## ✅ 해결책
 
-FairQueue는 유저가 조건과 함께 결제 금액을 **온체인 에스크로에 미리 예치**하게 합니다. 에이전트는 정상적인 대기열 순서를 그대로 지키며 기다리고, 순번이 왔을 때 자금은 이미 확보되어 있으므로 결제 실패가 원천 차단됩니다. 매진이거나 조건이 맞지 않으면 그 즉시 온체인에서 투명하게 환불됩니다.
+FairQueue는 유저가 조건과 함께 결제 금액을 **온체인 에스크로에 미리 예치**하게 합니다. 실제 판매 가능 좌석과 조건을 비교해 **1차 희망 → 대안 좌석 → 환불** 순으로 자동 판단하고, 결과에 따라 자금이 즉시 정확한 곳으로 이동합니다.
 
 <div align="center">
 
@@ -47,55 +45,65 @@ FairQueue는 유저가 조건과 함께 결제 금액을 **온체인 에스크�
 | **대기열 처리** | 우회·편법 시도 | 정상 순서 그대로 (1계정 1에이전트) |
 | **목적** | 남보다 빨리 선점 | 결제 실패 방지 + 즉시 투명 환불 |
 | **플랫폼과의 관계** | ❌ 대립적 (차단 대상) | ✅ 협력적 (매출 손실 방지 인프라) |
-| **핵심 가치** | 속도 경쟁 | 결제 성공률 보장 + 투명성 |
 
 </div>
 
 <br>
 
-##  아키텍처
+## 🟢 검증 완료된 핵심 파이프라인
+
+아래 흐름은 **목업이 아니라, 실제 Solana Devnet 트랜잭션 + 실제 Gemini API 호출 + 실제 백엔드 API 통신**으로 end-to-end 검증되었습니다.
+
+| 단계 | 검증 내용 | 상태 |
+|:---|:---|:---:|
+| 자연어 → 조건 파싱 | Gemini가 유저 요청을 `primary` + `fallback_rules` 구조로 변환 | ✅ |
+| 플랫폼 API 연동 | Express 기반 좌석 상태 API와 실시간 HTTP 통신 (`GET`/`POST /seats/:event`) | ✅ |
+| 온체인 에스크로 예치 | 사람 승인 없는 agent keypair 자율 서명으로 Devnet 트랜잭션 발생 | ✅ |
+| 3단계 자동 판단 | ①1차 조건 성공 ②대안 조건으로 성공 ③모두 매진 시 환불, Gemini가 실제 좌석 데이터 기반으로 판단 | ✅ |
+| 조건별 에스크로 해제 | 결제 시 판매자 지갑, 환불 시 유저 지갑으로 정확히 분기 | ✅ |
+| 거스름돈 자동 반환 | 예치 금액 > 실결제 금액일 경우 차액을 자동으로 유저에게 반환 | ✅ |
+
+세 가지 핵심 시나리오(1차 확보 성공 / 대안으로 확보 성공 / 전량 매진 후 환불) 모두 실제 Devnet에서 트랜잭션 서명·전송·확정까지 재현 가능하게 실행됩니다.
+
+<br>
+
+## 🏗️ 아키텍처
 
 ```
 ┌─────────────┐
 │    User     │  자연어로 조건 입력
-│             │  "아이유 콘서트 R석, 20만원 이하, 2연석"
+│             │  "아이유 콘서트 R석, 20만원 이하로 1석 구해줘.
+│             │   매진이면 S석도 15만원 이하로 괜찮아."
 └──────┬──────┘
        ▼
 ┌─────────────────────┐
-│   ✨ Gemini          │  조건 파싱 → 구조화된 JSON
-│   (자연어 → 조건)     │
+│   ✨ Gemini          │  조건 파싱 → { primary, fallback_rules }
 └──────┬───────────────┘
        ▼
 ┌─────────────────────┐
-│  ☁️ Cloud Run         │  정상 대기열 진입 (우회 없음)
-│  (구매 에이전트)       │
+│  ◎ Solana Escrow     │  예상 최대 금액 온체인 예치 (자율 서명)
 └──────┬───────────────┘
        ▼
 ┌─────────────────────┐
-│  ◎ Solana Escrow     │  결제 금액 사전 예치
-│  (자율 서명)          │  사람 개입 없이 트랜잭션 실행
+│  🎫 Platform Sim API  │  실제 좌석 상태 조회 (Express, GET /seats/:event)
 └──────┬───────────────┘
        ▼
-   순번 도달
-       │
-   ┌───┴────┐
-   ▼        ▼
-조건 충족   매진/불충족
-   │        │
-   ▼        ▼
-즉시 결제   ✨ Gemini 대안 판단
-            │
-        ┌───┴────┐
-        ▼        ▼
-     대안 충족   대안 없음
-        │        │
-        ▼        ▼
-     재탐색·결제  ◎ 즉시 자동 환불
+┌─────────────────────┐
+│   ✨ Gemini           │  1차 → 대안 → 환불 다단계 판단
+└──────┬───────────────┘
+       ▼
+   ┌───┴────────────┐
+   ▼                ▼
+SETTLE_PRIMARY/    REFUND
+SETTLE_FALLBACK       │
+   │                  │
+   ▼                  ▼
+판매자 지갑로 결제      유저 지갑으로 전액 환불
+   │
+   ▼
+차액 있으면 거스름돈 자동 반환
 
-┌──────────────────────────────────────┐
-│  🔥 Firestore   대기열 · 에스크로 상태 저장   │
-│  🔍 Solana Explorer   전 과정 검증 가능한 기록 │
-└──────────────────────────────────────┘
+🔍 모든 트랜잭션은 Solana Explorer(Devnet)에서 검증 가능
 ```
 
 <br>
@@ -108,91 +116,22 @@ FairQueue는 유저가 조건과 함께 결제 금액을 **온체인 에스크�
 
 ### ◎ Solana
 
-- **즉시성** — 에스크로 생성/해제가 즉시, 저비용이라 소액도 부담 없이 예치
-- **즉시 환불** — 매진 확정 즉시 온체인 자동 환불 (기존 카드망은 정산 주기상 며칠 소요)
-- **투명성** — 전 과정이 온체인에 기록되어 배정 공정성 분쟁 시 검증 가능
+- **즉시성** — 에스크로 예치/해제가 즉시, 저비용
+- **즉시 환불** — 매진 확정 즉시 온체인 자동 환불
+- **투명성** — 전 과정이 온체인에 기록되어 검증 가능
 
 </td>
 <td width="50%" valign="top">
 
 ### ✨ Google Cloud / Gemini
 
-- **자연어 조건 파싱** — 애매한 요청은 되물어 명확화
-- **매진 시 대안 판단** — 우선순위 규칙 기반 실시간 판단
-- **부정 탐지 보조** — 매크로 의심 패턴 탐지 (확장 기능)
-- **Cloud Run / Firestore** — 상태 관리 인프라
+- **자연어 조건 파싱** — 1차 조건과 대안 규칙까지 구조화
+- **다단계 판단** — 실제 좌석 데이터를 근거로 1차/대안/환불 결정
+- **근거 있는 의사결정** — 모든 판단에 reasoning 포함
 
 </td>
 </tr>
 </table>
-
-<br>
-
-## 🧠 Gemini 판단 로직
-
-<details>
-<summary><b>1. 자연어 조건 파싱 예시</b></summary>
-<br>
-
-**입력:**
-```
-"다음 주 토요일 아이유 콘서트, VIP 말고 R석이나 S석으로, 20만원 안에서, 2연석으로 구해줘"
-```
-
-**출력:**
-```json
-{
-  "event": "아이유 콘서트",
-  "date_constraint": "다음 주 토요일",
-  "seat_grades_allowed": ["R", "S"],
-  "seat_grades_excluded": ["VIP"],
-  "max_price_krw": 200000,
-  "seat_count": 2,
-  "adjacency_required": true
-}
-```
-
-</details>
-
-<details>
-<summary><b>2. 매진 시 대안 판단 예시</b></summary>
-<br>
-
-**사전 설정:**
-```json
-{
-  "primary": { "grade": "R", "max_price": 200000 },
-  "fallback_rules": [
-    { "if_unavailable": "primary", "then": "S석도 허용, 단 15만원 이하" },
-    { "if_unavailable": "fallback_1", "then": "환불 후 취소표 대기 등록" }
-  ]
-}
-```
-
-**실시간 판단:**
-```json
-{
-  "situation": "R석 매진 확정",
-  "decision": "S석 조건으로 재탐색",
-  "reasoning": "1순위 매진, 2순위 조건이 아직 유효하여 자동 전환"
-}
-```
-
-</details>
-
-<details>
-<summary><b>3. 부정 탐지 예시 (확장 기능)</b></summary>
-<br>
-
-```
-입력: 최근 1시간 내 요청 로그
-- 동일 IP에서 47개 계정이 동일 조건으로 동시 요청
-- 계정 생성 시각이 모두 요청 10분 전
-
-Gemini 판단: "다중 계정 매크로 패턴 의심 → 대기열 제외 권고"
-```
-
-</details>
 
 <br>
 
@@ -202,36 +141,19 @@ Gemini 판단: "다중 계정 매크로 패턴 의심 → 대기열 제외 권�
 
 | 영역 | 기술 |
 |:---|:---|
-| 🧠 AI | Google Gemini |
-| ◎ 결제/온체인 | Solana (Devnet), Solana Pay / pay.sh |
-| ☁️ 백엔드 | Google Cloud Run, Node.js |
-| 🔥 DB | Firestore |
-| 🔑 지갑/서명 | `@solana/web3.js` |
+| 🧠 AI | Google Gemini (`gemini-flash-latest`) |
+| ◎ 결제/온체인 | Solana (Devnet), `@solana/web3.js` |
+| ☁️ 백엔드 | Node.js, Express |
+| 🔑 지갑/서명 | Agent keypair 기반 자율 서명 (승인 팝업 없음) |
 
 </div>
-
-<br>
-
-## 데모 시나리오
-
-```
-1️⃣  유저가 자연어로 조건 입력
-     ↓
-2️⃣  Gemini가 조건을 구조화 → 에이전트가 대기열 진입
-     ↓
-3️⃣  대기 중 Solana 데브넷에 에스크로 생성 (Explorer 실시간 확인)
-     ↓
-4️⃣  매진 발생 → Gemini 대안 판단
-     ↓
-5️⃣  조건 충족 시 자동 결제 / 불충족 시 즉시 자동 환불
-```
 
 <br>
 
 ## 🚀 로컬 실행 방법
 
 ```bash
-git clone https://github.com/sonsiyeong/fairqueue.git
+git clone https://github.com/sonsiyeong977/fairqueue.git
 cd fairqueue
 npm install
 ```
@@ -240,13 +162,21 @@ npm install
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key
-SOLANA_CLUSTER=devnet
-SOLANA_KEYPAIR_PATH=~/.config/solana/id.json
 ```
 
+**터미널 1 — 플랫폼 시뮬레이터 실행**
 ```bash
-npm run dev
+cd platform-sim
+node server.js
 ```
+
+**터미널 2 — 에이전트 파이프라인 실행**
+```bash
+cd agent
+node main.js
+```
+
+세 시나리오(1차 확보 성공 / 대안 확보 성공 / 전량 매진 환불)가 순서대로 실행되며, 각 단계의 Solana Explorer 링크가 콘솔에 출력됩니다.
 
 <br>
 
@@ -254,10 +184,14 @@ npm run dev
 
 ```
 fairqueue/
-├── agent/              # Gemini 기반 조건 파싱 및 판단 로직
-├── escrow/             # Solana 에스크로 생성/해제 트랜잭션 로직
-├── platform-sim/       # 데모용 가상 티켓 플랫폼 (좌석/대기열 시뮬레이터)
-├── dashboard/           # 데모용 프론트엔드
+├── agent/
+│   ├── main.js              # 전체 파이프라인 실행 (파싱 → 예치 → 판단 → 해제)
+│   ├── parse-test.js        # 조건 파싱 단독 테스트
+│   ├── fallback-test.js     # 판단 로직 단독 테스트
+│   └── escrow-wallet.json   # 에스크로 지갑 키페어 (gitignore 처리됨)
+├── platform-sim/
+│   └── server.js            # 좌석 상태 관리 Express API
+├── dashboard/                # (예정) 데모용 프론트엔드
 └── README.md
 ```
 
