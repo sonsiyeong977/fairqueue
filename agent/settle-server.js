@@ -33,6 +33,26 @@ const escrowWallet = Keypair.fromSecretKey(Uint8Array.from(escrowSecret));
 
 const sellerWallet = Keypair.generate(); // 데모용 고정값으로 바꿔도 됨
 
+// ── 간단한 API 키 인증 미들웨어 ──────────────────────────────
+// 실제 자금이 움직이는 엔드포인트이므로, 허용된 클라이언트(팀원 서버)만 호출 가능하게 최소한의 방어선을 둔다.
+// 프로덕션에서는 JWT나 OAuth 등으로 강화 필요 — 지금은 해커톤 MVP 수준의 최소 방어.
+function requireApiKey(req, res, next) {
+  const providedKey = req.header("x-api-key");
+  const expectedKey = process.env.SETTLE_API_KEY;
+
+  if (!expectedKey) {
+    console.warn("⚠️  경고: SETTLE_API_KEY가 .env에 설정되지 않았습니다. 인증 없이 열려 있습니다.");
+    return next();
+  }
+
+  if (!providedKey || providedKey !== expectedKey) {
+    console.warn(`[인증 실패] 잘못된 API 키로 접근 시도: ${req.ip}`);
+    return res.status(401).json({ error: "Unauthorized: 유효한 x-api-key 헤더가 필요합니다." });
+  }
+
+  next();
+}
+
 // ── 유틸 ──────────────────────────────
 function krwToSol(krw) {
   return Number((krw / 10000000).toFixed(4)) || 0.01;
@@ -93,11 +113,8 @@ ${JSON.stringify(offeredSeat, null, 2)}
 }
 
 // ── 결정론적 검증 레이어 ──────────────────────────────
-// Gemini의 판단을 그대로 실행하지 않고, 실제 숫자를 코드로 다시 확인한다.
-// LLM의 환각/오판으로 인한 결제 사고를 막기 위한 최종 방어선.
 function verifyDecisionDeterministically(userConditions, offeredSeat, geminiDecision) {
   if (!offeredSeat) {
-    // 제안된 좌석 자체가 없으면 무조건 REFUND (Gemini 판단과 무관)
     return {
       finalDecision: "REFUND",
       overridden: geminiDecision.decision !== "REFUND",
@@ -131,20 +148,8 @@ function verifyDecisionDeterministically(userConditions, offeredSeat, geminiDeci
   };
 }
 
-// ── 핵심 엔드포인트: POST /settle ──────────────────────────────
-/**
- * Request body:
- * {
- *   "user_id": "user_123",
- *   "event": "아이유 콘서트",
- *   "user_conditions": {
- *     "primary": { "grade": "R석", "max_price_krw": 200000 },
- *     "fallback_rules": [{ "grade": "S석", "max_price_krw": 150000 }]
- *   },
- *   "offered_seat": { "grade": "R석", "price_krw": 190000 }  // null이면 바로 환불
- * }
- */
-app.post("/settle", async (req, res) => {
+// ── 핵심 엔드포인트: POST /settle (인증 필요) ──────────────────────────────
+app.post("/settle", requireApiKey, async (req, res) => {
   try {
     const { user_id, event, user_conditions, offered_seat } = req.body;
 
@@ -158,11 +163,9 @@ app.post("/settle", async (req, res) => {
 
     const maxAmount = krwToSol(user_conditions.primary.max_price_krw);
 
-    // STEP 1. 에스크로 예치
     const fundSig = await fundEscrow(maxAmount);
     console.log(`   에스크로 예치 완료: ${fundSig}`);
 
-    // STEP 2. Gemini 1차 판단
     let geminiDecision;
     if (!offered_seat) {
       geminiDecision = { decision: "REFUND", reasoning: "플랫폼이 제안한 좌석이 없음 (매진)" };
@@ -171,7 +174,6 @@ app.post("/settle", async (req, res) => {
     }
     console.log("   Gemini 판단:", geminiDecision);
 
-    // STEP 3. 결정론적 재검증 (최종 실행 여부는 여기서 확정)
     const verification = verifyDecisionDeterministically(
       user_conditions,
       offered_seat,
@@ -185,7 +187,6 @@ app.post("/settle", async (req, res) => {
 
     const finalDecision = verification.finalDecision;
 
-    // STEP 4. 해제 (결제 or 환불) — 검증을 통과한 finalDecision 기준으로만 실행
     let recipient, finalAmount;
     if (finalDecision === "REFUND") {
       recipient = agentWallet.publicKey.toBase58();
@@ -198,7 +199,6 @@ app.post("/settle", async (req, res) => {
     const releaseSig = await releaseEscrow(recipient, finalAmount);
     console.log(`   ${finalDecision} 완료: ${releaseSig}`);
 
-    // STEP 5. 거스름돈 반환 (있으면)
     let changeSig = null;
     const change = maxAmount - finalAmount;
     if (finalDecision !== "REFUND" && change > 0.0001) {
@@ -206,7 +206,6 @@ app.post("/settle", async (req, res) => {
       console.log(`   거스름돈 반환 완료: ${changeSig}`);
     }
 
-    // 팀원 서버가 받을 최종 응답
     res.json({
       user_id,
       gemini_decision: geminiDecision.decision,
@@ -231,5 +230,5 @@ app.post("/settle", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`💳 Settle server running on http://localhost:${PORT}`);
-  console.log(`   POST /settle - 좌석 제안 기반 결제/환불 처리 (Gemini 판단 + 결정론적 재검증)`);
+  console.log(`   POST /settle - 좌석 제안 기반 결제/환불 처리 (Gemini 판단 + 결정론적 재검증 + API Key 인증)`);
 });
