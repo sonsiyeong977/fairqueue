@@ -1,3 +1,15 @@
 .env
 node_modules/
 agent/escrow-wallet.json
+
+# Anchor / Solana build outputs and local ledgers
+anchor-escrow/target/
+anchor-escrow/.anchor/
+anchor-escrow/test-ledger/
+anchor-escrow/node_modules/
+anchor-escrow/.yarn/
+anchor-escrow/.surfpool/
+
+# Wallets and generated program keypairs
+**/*keypair*.json
+**/id.json
