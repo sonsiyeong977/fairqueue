@@ -124,7 +124,7 @@ function queueSnapshot(eventState, entry) {
     event: eventState.event,
     status: entry.status,
     position: index + 1,
-    current_turn: Math.min(eventState.turn_index + 1, eventState.queue.length),
+    current_turn: eventState.turn_index,
     waiting_ahead: waitingAhead,
     is_my_turn: isTurn && entry.status === "WAITING",
     joined_at: entry.joined_at,
@@ -145,7 +145,8 @@ function pickSeat(eventState, conditions = {}) {
   }
   const availableRows = publicSeatRows(eventState);
 
-  for (const rule of orderedRules) {
+  for (let index = 0; index < orderedRules.length; index += 1) {
+    const rule = orderedRules[index];
     const seat = availableRows.find((row) => {
       const gradeMatches = !rule.grade || row.grade === rule.grade;
       const priceMatches = !rule.max_price_krw || row.price_krw <= rule.max_price_krw;
@@ -157,11 +158,46 @@ function pickSeat(eventState, conditions = {}) {
         grade: seat.grade,
         price_krw: seat.price_krw,
         count: seatCount,
+        match_type: index === 0 ? "PRIMARY" : "FALLBACK",
+        matched_rule_index: index,
       };
     }
   }
 
   return null;
+}
+
+function explainNoOffer(eventState, conditions = {}) {
+  const primary = conditions.primary;
+  const fallbackRules = conditions.fallback_rules || [];
+  const seatCount = Number(conditions.seat_count || 1);
+  const rules = [primary, ...fallbackRules].filter(Boolean);
+  const availableRows = publicSeatRows(eventState);
+
+  if (rules.length === 0) {
+    return "구매 조건이 비어 있고, 제안 가능한 좌석이 없습니다.";
+  }
+
+  const details = rules.map((rule, index) => {
+    const label = index === 0 ? "1순위" : `대안 ${index}`;
+    const seat = availableRows.find((row) => row.grade === rule.grade);
+
+    if (!seat) {
+      return `${label} ${rule.grade}석은 판매 목록에 없습니다.`;
+    }
+
+    if (seat.available_count < seatCount) {
+      return `${label} ${rule.grade}석은 요청 수량 ${seatCount}매보다 재고 ${seat.available_count}매가 적습니다.`;
+    }
+
+    if (rule.max_price_krw && seat.price_krw > rule.max_price_krw) {
+      return `${label} ${rule.grade}석 가격 ${seat.price_krw}원이 최대 허용 금액 ${rule.max_price_krw}원을 초과합니다.`;
+    }
+
+    return `${label} ${rule.grade}석 조건을 만족하지 못했습니다.`;
+  });
+
+  return details.join(" ");
 }
 
 function expireHolds(eventState) {
@@ -178,6 +214,8 @@ function createHold(eventState, queueEntry, seat) {
     grade: seat.grade,
     price_krw: seat.price_krw,
     count: seat.count,
+    match_type: seat.match_type,
+    matched_rule_index: seat.matched_rule_index,
     created_at: nowIso(),
     expires_at: new Date(Date.now() + HOLD_TTL_MS).toISOString(),
     expires_at_ms: Date.now() + HOLD_TTL_MS,
@@ -249,7 +287,7 @@ app.get("/events", (req, res) => {
       venue: eventState.venue,
       sale_status: eventState.sale_status,
       queue_size: eventState.queue.length,
-      current_turn: Math.min(eventState.turn_index + 1, eventState.queue.length),
+      current_turn: eventState.turn_index,
       order_count: eventState.orders.length,
       refund_pending_count: eventState.refunds.filter((refund) => refund.status === "REFUND_PENDING").length,
       refunded_count: eventState.refunds.filter((refund) => refund.status === "REFUNDED").length,
@@ -347,7 +385,7 @@ app.post("/queue/advance", (req, res) => {
 
   res.json({
     event: eventState.event,
-    current_turn: Math.min(eventState.turn_index + 1, eventState.queue.length),
+    current_turn: eventState.turn_index,
     queue_size: eventState.queue.length,
   });
 });
@@ -372,10 +410,11 @@ app.post("/queue/offer", (req, res) => {
 
   const offeredSeat = pickSeat(eventState, entry.conditions);
   if (!offeredSeat) {
+    const reason = explainNoOffer(eventState, entry.conditions);
     const refund = createRefund(
       eventState,
       entry,
-      "No seat satisfies the saved conditions"
+      reason
     );
     return res.json({
       event: eventState.event,
