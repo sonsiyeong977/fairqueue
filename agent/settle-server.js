@@ -3,45 +3,71 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const express = require("express");
+const anchor = require("@coral-xyz/anchor");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const {
-  Connection,
-  Keypair,
-  LAMPORTS_PER_SOL,
-  SystemProgram,
-  Transaction,
-  sendAndConfirmTransaction,
-  clusterApiUrl,
-  PublicKey,
-} = require("@solana/web3.js");
+const { Connection, Keypair, LAMPORTS_PER_SOL, SystemProgram, clusterApiUrl, PublicKey } = require("@solana/web3.js");
 
 const app = express();
 app.use(express.json());
 
 const PORT = 4000;
+const CLUSTER = process.env.SOLANA_CLUSTER || "devnet";
+const RPC_URL = process.env.SOLANA_RPC_URL || clusterApiUrl(CLUSTER);
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
+const connection = new Connection(RPC_URL, "confirmed");
 
 // ── 지갑 로드 ──────────────────────────────
-const agentKeypairPath = path.join(os.homedir(), ".config", "solana", "id.json");
+const agentKeypairPath = process.env.AGENT_KEYPAIR_PATH || path.join(os.homedir(), ".config", "solana", "id.json");
 const agentSecret = JSON.parse(fs.readFileSync(agentKeypairPath, "utf8"));
 const agentWallet = Keypair.fromSecretKey(Uint8Array.from(agentSecret));
 
-const escrowSecret = JSON.parse(fs.readFileSync("escrow-wallet.json", "utf8"));
-const escrowWallet = Keypair.fromSecretKey(Uint8Array.from(escrowSecret));
+const sellerWallet = process.env.SELLER_PUBKEY
+  ? { publicKey: new PublicKey(process.env.SELLER_PUBKEY) }
+  : Keypair.generate();
 
-const sellerWallet = Keypair.generate(); // 데모용 고정값으로 바꿔도 됨
+// ── Anchor client ──────────────────────────────
+const idl = require("../anchor-escrow/idl/anchor_escrow.json");
+const programId = new PublicKey(idl.address);
+const provider = new anchor.AnchorProvider(
+  connection,
+  new anchor.Wallet(agentWallet),
+  { commitment: "confirmed", preflightCommitment: "confirmed" }
+);
+const program = new anchor.Program(idl, provider);
+
+function nextOrderId() {
+  return BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000));
+}
+
+function toLamports(amountSol) {
+  return new anchor.BN(Math.round(amountSol * LAMPORTS_PER_SOL));
+}
+
+function orderIdToBn(orderId) {
+  return new anchor.BN(orderId.toString());
+}
+
+function orderIdSeed(orderId) {
+  const seed = Buffer.alloc(8);
+  seed.writeBigUInt64LE(BigInt(orderId));
+  return seed;
+}
+
+function deriveEscrowState(userPubkey, orderId) {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("escrow"), userPubkey.toBuffer(), orderIdSeed(orderId)],
+    programId
+  )[0];
+}
 
 // ── 간단한 API 키 인증 미들웨어 ──────────────────────────────
-// 실제 자금이 움직이는 엔드포인트이므로, 허용된 클라이언트(팀원 서버)만 호출 가능하게 최소한의 방어선을 둔다.
-// 프로덕션에서는 JWT나 OAuth 등으로 강화 필요 — 지금은 해커톤 MVP 수준의 최소 방어.
 function requireApiKey(req, res, next) {
   const providedKey = req.header("x-api-key");
   const expectedKey = process.env.SETTLE_API_KEY;
 
   if (!expectedKey) {
-    console.warn("⚠️  경고: SETTLE_API_KEY가 .env에 설정되지 않았습니다. 인증 없이 열려 있습니다.");
+    console.warn("경고: SETTLE_API_KEY가 .env에 설정되지 않았습니다. 인증 없이 열려 있습니다.");
     return next();
   }
 
@@ -58,29 +84,62 @@ function krwToSol(krw) {
   return Number((krw / 10000000).toFixed(4)) || 0.01;
 }
 
-async function fundEscrow(amountSol) {
-  const tx = new Transaction().add(
-    SystemProgram.transfer({
-      fromPubkey: agentWallet.publicKey,
-      toPubkey: escrowWallet.publicKey,
-      lamports: Math.round(amountSol * LAMPORTS_PER_SOL),
+async function fundEscrow(amountSol, sellerPubkey = sellerWallet.publicKey) {
+  const orderId = nextOrderId();
+  const escrowState = deriveEscrowState(agentWallet.publicKey, orderId);
+  const lamports = toLamports(amountSol);
+
+  const sig = await program.methods
+    .deposit(orderIdToBn(orderId), lamports, new PublicKey(sellerPubkey))
+    .accounts({
+      user: agentWallet.publicKey,
+      authority: agentWallet.publicKey,
+      escrowState,
+      systemProgram: SystemProgram.programId,
     })
-  );
-  const sig = await sendAndConfirmTransaction(connection, tx, [agentWallet]);
-  return sig;
+    .signers([agentWallet])
+    .rpc();
+
+  return {
+    sig,
+    orderId: orderId.toString(),
+    escrowState: escrowState.toBase58(),
+    user: agentWallet.publicKey.toBase58(),
+    seller: new PublicKey(sellerPubkey).toBase58(),
+    amountSol,
+    amountLamports: lamports.toString(),
+  };
 }
 
-async function releaseEscrow(recipientPubkey, amountSol) {
-  const recipient = new PublicKey(recipientPubkey);
-  const tx = new Transaction().add(
-    SystemProgram.transfer({
-      fromPubkey: escrowWallet.publicKey,
-      toPubkey: recipient,
-      lamports: Math.round(amountSol * LAMPORTS_PER_SOL),
+async function releaseEscrow(orderId, userPubkey, sellerPubkey) {
+  const user = new PublicKey(userPubkey);
+  const seller = new PublicKey(sellerPubkey);
+  const escrowState = deriveEscrowState(user, orderId);
+
+  return program.methods
+    .release()
+    .accounts({
+      authority: agentWallet.publicKey,
+      seller,
+      escrowState,
     })
-  );
-  const sig = await sendAndConfirmTransaction(connection, tx, [escrowWallet]);
-  return sig;
+    .signers([agentWallet])
+    .rpc();
+}
+
+async function refundEscrow(orderId, userPubkey) {
+  const user = new PublicKey(userPubkey);
+  const escrowState = deriveEscrowState(user, orderId);
+
+  return program.methods
+    .refund()
+    .accounts({
+      authority: agentWallet.publicKey,
+      user,
+      escrowState,
+    })
+    .signers([agentWallet])
+    .rpc();
 }
 
 // ── Gemini: 제안된 좌석이 유저 조건에 맞는지 1차 판단 ──────────────────────────────
@@ -163,9 +222,6 @@ app.post("/settle", requireApiKey, async (req, res) => {
 
     const maxAmount = krwToSol(user_conditions.primary.max_price_krw);
 
-    const fundSig = await fundEscrow(maxAmount);
-    console.log(`   에스크로 예치 완료: ${fundSig}`);
-
     let geminiDecision;
     if (!offered_seat) {
       geminiDecision = { decision: "REFUND", reasoning: "플랫폼이 제안한 좌석이 없음 (매진)" };
@@ -186,25 +242,19 @@ app.post("/settle", requireApiKey, async (req, res) => {
     }
 
     const finalDecision = verification.finalDecision;
+    const finalAmount = finalDecision === "REFUND" ? maxAmount : krwToSol(offered_seat.price_krw);
+    const sellerPubkey = sellerWallet.publicKey.toBase58();
 
-    let recipient, finalAmount;
+    const fundResult = await fundEscrow(finalAmount, sellerPubkey);
+    console.log(`   Anchor 에스크로 예치 완료: ${fundResult.sig}`);
+
+    let settleSig;
     if (finalDecision === "REFUND") {
-      recipient = agentWallet.publicKey.toBase58();
-      finalAmount = maxAmount;
+      settleSig = await refundEscrow(fundResult.orderId, fundResult.user);
     } else {
-      recipient = sellerWallet.publicKey.toBase58();
-      finalAmount = krwToSol(offered_seat.price_krw);
+      settleSig = await releaseEscrow(fundResult.orderId, fundResult.user, sellerPubkey);
     }
-
-    const releaseSig = await releaseEscrow(recipient, finalAmount);
-    console.log(`   ${finalDecision} 완료: ${releaseSig}`);
-
-    let changeSig = null;
-    const change = maxAmount - finalAmount;
-    if (finalDecision !== "REFUND" && change > 0.0001) {
-      changeSig = await releaseEscrow(agentWallet.publicKey.toBase58(), change);
-      console.log(`   거스름돈 반환 완료: ${changeSig}`);
-    }
+    console.log(`   ${finalDecision} 완료: ${settleSig}`);
 
     res.json({
       user_id,
@@ -213,13 +263,17 @@ app.post("/settle", requireApiKey, async (req, res) => {
       final_decision: finalDecision,
       overridden_by_verification: verification.overridden,
       verify_note: verification.verifyNote,
-      fund_tx: fundSig,
-      settle_tx: releaseSig,
-      change_tx: changeSig,
+      escrow_order_id: fundResult.orderId,
+      escrow_state: fundResult.escrowState,
+      escrow_user: fundResult.user,
+      escrow_seller: fundResult.seller,
+      escrow_amount_sol: fundResult.amountSol,
+      escrow_amount_lamports: fundResult.amountLamports,
+      fund_tx: fundResult.sig,
+      settle_tx: settleSig,
       explorer_urls: {
-        fund: `https://explorer.solana.com/tx/${fundSig}?cluster=devnet`,
-        settle: `https://explorer.solana.com/tx/${releaseSig}?cluster=devnet`,
-        change: changeSig ? `https://explorer.solana.com/tx/${changeSig}?cluster=devnet` : null,
+        fund: `https://explorer.solana.com/tx/${fundResult.sig}?cluster=${CLUSTER}`,
+        settle: `https://explorer.solana.com/tx/${settleSig}?cluster=${CLUSTER}`,
       },
     });
   } catch (err) {
@@ -229,6 +283,7 @@ app.post("/settle", requireApiKey, async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`💳 Settle server running on http://localhost:${PORT}`);
-  console.log(`   POST /settle - 좌석 제안 기반 결제/환불 처리 (Gemini 판단 + 결정론적 재검증 + API Key 인증)`);
+  console.log(`Settle server running on http://localhost:${PORT}`);
+  console.log(`   cluster=${CLUSTER}`);
+  console.log("   POST /settle - 좌석 제안 기반 결제/환불 처리 (Gemini 판단 + Anchor escrow + API Key 인증)");
 });

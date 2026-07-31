@@ -21,6 +21,7 @@
   },
   "homepage": "https://github.com/sonsiyeong977/fairqueue#readme",
   "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
     "@google/generative-ai": "^0.24.1",
     "@solana/web3.js": "^1.98.4",
     "dotenv": "^17.4.2",

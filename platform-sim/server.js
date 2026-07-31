@@ -1,4 +1,4 @@
-const express = require("express");
+﻿const express = require("express");
 
 const app = express();
 app.use(express.json());
@@ -6,6 +6,8 @@ app.use(express.json());
 const PORT = Number(process.env.PORT || 3001);
 const TURN_INTERVAL_MS = Number(process.env.TURN_INTERVAL_MS || 8000);
 const HOLD_TTL_MS = Number(process.env.HOLD_TTL_MS || 60_000);
+const SETTLE_SERVER_URL = process.env.SETTLE_SERVER_URL || "http://localhost:4000";
+const SETTLE_API_KEY = process.env.SETTLE_API_KEY;
 
 const defaultEventName = "IU Concert";
 
@@ -116,7 +118,8 @@ function findQueueEntry(eventState, query) {
 function queueSnapshot(eventState, entry) {
   const index = eventState.queue.findIndex((item) => item.queue_id === entry.queue_id);
   const isTurn = index >= 0 && index < eventState.turn_index;
-  const waitingAhead = Math.max(index - eventState.turn_index + 1, 0);
+  const waitingAhead = Math.max(index - eventState.turn_index, 0);
+  const turnsUntilEntry = Math.max(index - eventState.turn_index + 1, 0);
 
   return {
     queue_id: entry.queue_id,
@@ -126,9 +129,10 @@ function queueSnapshot(eventState, entry) {
     position: index + 1,
     current_turn: eventState.turn_index,
     waiting_ahead: waitingAhead,
+    turns_until_entry: turnsUntilEntry,
     is_my_turn: isTurn && entry.status === "WAITING",
     joined_at: entry.joined_at,
-    estimated_wait_ms: waitingAhead * TURN_INTERVAL_MS,
+    estimated_wait_ms: turnsUntilEntry * TURN_INTERVAL_MS,
   };
 }
 
@@ -175,26 +179,26 @@ function explainNoOffer(eventState, conditions = {}) {
   const availableRows = publicSeatRows(eventState);
 
   if (rules.length === 0) {
-    return "구매 조건이 비어 있고, 제안 가능한 좌석이 없습니다.";
+    return "援щℓ 議곌굔??鍮꾩뼱 ?덇퀬, ?쒖븞 媛?ν븳 醫뚯꽍???놁뒿?덈떎.";
   }
 
   const details = rules.map((rule, index) => {
-    const label = index === 0 ? "1순위" : `대안 ${index}`;
+    const label = index === 0 ? "1?쒖쐞" : `???${index}`;
     const seat = availableRows.find((row) => row.grade === rule.grade);
 
     if (!seat) {
-      return `${label} ${rule.grade}석은 판매 목록에 없습니다.`;
+      return `${label} ${rule.grade}?앹? ?먮ℓ 紐⑸줉???놁뒿?덈떎.`;
     }
 
     if (seat.available_count < seatCount) {
-      return `${label} ${rule.grade}석은 요청 수량 ${seatCount}매보다 재고 ${seat.available_count}매가 적습니다.`;
+      return `${label} ${rule.grade}?앹? ?붿껌 ?섎웾 ${seatCount}留ㅻ낫???ш퀬 ${seat.available_count}留ㅺ? ?곸뒿?덈떎.`;
     }
 
     if (rule.max_price_krw && seat.price_krw > rule.max_price_krw) {
-      return `${label} ${rule.grade}석 가격 ${seat.price_krw}원이 최대 허용 금액 ${rule.max_price_krw}원을 초과합니다.`;
+      return `${label} ${rule.grade}??媛寃?${seat.price_krw}?먯씠 理쒕? ?덉슜 湲덉븸 ${rule.max_price_krw}?먯쓣 珥덇낵?⑸땲??`;
     }
 
-    return `${label} ${rule.grade}석 조건을 만족하지 못했습니다.`;
+    return `${label} ${rule.grade}??議곌굔??留뚯”?섏? 紐삵뻽?듬땲??`;
   });
 
   return details.join(" ");
@@ -249,6 +253,88 @@ function createRefund(eventState, queueEntry, reason) {
   queueEntry.status = "REFUND_PENDING";
   queueEntry.refund = refund;
   return refund;
+}
+
+function httpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function confirmHold(eventState, hold, txHash) {
+  const seat = eventState.seats.find((row) => row.grade === hold.grade);
+  if (!seat || seat.count < hold.count) {
+    throw httpError(409, "seat is no longer available");
+  }
+
+  seat.count -= hold.count;
+  eventState.holds = eventState.holds.filter((item) => item.hold_id !== hold.hold_id);
+
+  const entry = eventState.queue.find((item) => item.queue_id === hold.queue_id);
+  if (entry) entry.status = txHash ? "SETTLED" : "PURCHASED";
+
+  const order = {
+    order_id: makeId("order"),
+    event: eventState.event,
+    user_id: hold.user_id,
+    queue_id: hold.queue_id,
+    grade: hold.grade,
+    price_krw: hold.price_krw,
+    count: hold.count,
+    status: txHash ? "SETTLED" : "PURCHASED",
+    settlement_tx_hash: txHash || null,
+    purchased_at: nowIso(),
+    settled_at: txHash ? nowIso() : null,
+  };
+  eventState.orders.push(order);
+  return order;
+}
+
+function markRefundCompleted(eventState, queueEntry, reason, txHash) {
+  if (queueEntry.offer) {
+    eventState.holds = eventState.holds.filter(
+      (hold) => hold.hold_id !== queueEntry.offer.hold_id
+    );
+    queueEntry.offer = null;
+  }
+
+  const refund = createRefund(eventState, queueEntry, reason);
+  refund.status = "REFUNDED";
+  refund.refund_tx_hash = txHash || null;
+  refund.refunded_at = nowIso();
+  queueEntry.status = "REFUNDED";
+  return refund;
+}
+
+async function callSettleServer(eventState, queueEntry, offeredSeat) {
+  const headers = { "Content-Type": "application/json" };
+  if (SETTLE_API_KEY) headers["x-api-key"] = SETTLE_API_KEY;
+
+  const response = await fetch(`${SETTLE_SERVER_URL}/settle`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      user_id: queueEntry.user_id,
+      event: eventState.event,
+      user_conditions: queueEntry.conditions || {},
+      offered_seat: offeredSeat,
+    }),
+  });
+
+  const bodyText = await response.text();
+  let body;
+  try {
+    body = bodyText ? JSON.parse(bodyText) : {};
+  } catch (error) {
+    body = { raw: bodyText };
+  }
+
+  if (!response.ok) {
+    const message = body.error || `settle-server returned ${response.status}`;
+    throw httpError(502, message);
+  }
+
+  return body;
 }
 
 function advanceTurns() {
@@ -442,37 +528,16 @@ app.post("/purchase/confirm", (req, res) => {
     return res.status(404).json({ error: "hold not found or expired" });
   }
 
-  const seat = eventState.seats.find((row) => row.grade === hold.grade);
-  if (!seat || seat.count < hold.count) {
-    return res.status(409).json({ error: "seat is no longer available" });
+  try {
+    const order = confirmHold(eventState, hold, req.body.tx_hash);
+    res.status(201).json({
+      order,
+      remainingSeats: publicSeatRows(eventState),
+      seat_statuses: seatStatusRows(eventState),
+    });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
   }
-
-  seat.count -= hold.count;
-  eventState.holds = eventState.holds.filter((item) => item.hold_id !== hold.hold_id);
-
-  const entry = eventState.queue.find((item) => item.queue_id === hold.queue_id);
-  if (entry) entry.status = "PURCHASED";
-
-  const order = {
-    order_id: makeId("order"),
-    event: eventState.event,
-    user_id: hold.user_id,
-    queue_id: hold.queue_id,
-    grade: hold.grade,
-    price_krw: hold.price_krw,
-    count: hold.count,
-    status: req.body.tx_hash ? "SETTLED" : "PURCHASED",
-    settlement_tx_hash: req.body.tx_hash || null,
-    purchased_at: nowIso(),
-    settled_at: req.body.tx_hash ? nowIso() : null,
-  };
-  eventState.orders.push(order);
-
-  res.status(201).json({
-    order,
-    remainingSeats: publicSeatRows(eventState),
-    seat_statuses: seatStatusRows(eventState),
-  });
 });
 
 app.post("/settlement/mark-paid", (req, res) => {
@@ -542,6 +607,100 @@ app.post("/refund/mark-refunded", (req, res) => {
   });
 });
 
+app.post("/demo/settle-offer", async (req, res) => {
+  try {
+    advanceTurns();
+
+    const eventState = getOrCreateEvent(req.body.event);
+    expireHolds(eventState);
+
+    const entry = findQueueEntry(eventState, req.body);
+    if (!entry) {
+      return res.status(404).json({ error: "queue entry not found" });
+    }
+
+    if (["PURCHASED", "SETTLED", "REFUNDED"].includes(entry.status)) {
+      return res.status(409).json({
+        error: "queue entry already finalized",
+        queue: queueSnapshot(eventState, entry),
+      });
+    }
+
+    if (entry.offer) {
+      const activeHold = eventState.holds.find((hold) => hold.hold_id === entry.offer.hold_id);
+      if (!activeHold) {
+        entry.offer = null;
+        entry.status = "WAITING";
+      }
+    }
+
+    let snapshot = queueSnapshot(eventState, entry);
+    if (!snapshot.is_my_turn && entry.status !== "OFFERED") {
+      return res.status(409).json({ error: "not your turn yet", queue: snapshot });
+    }
+
+    let hold = entry.offer;
+    if (!hold) {
+      const offeredSeat = pickSeat(eventState, entry.conditions);
+      if (offeredSeat) {
+        hold = createHold(eventState, entry, offeredSeat);
+      } else {
+        const reason = explainNoOffer(eventState, entry.conditions);
+        createRefund(eventState, entry, reason);
+        const settleResult = await callSettleServer(eventState, entry, null);
+        const refund = markRefundCompleted(
+          eventState,
+          entry,
+          reason,
+          settleResult.settle_tx
+        );
+
+        return res.status(201).json({
+          event: eventState.event,
+          queue: queueSnapshot(eventState, entry),
+          offered_seat: null,
+          refund,
+          settle_result: settleResult,
+          seat_statuses: seatStatusRows(eventState),
+        });
+      }
+    }
+
+    const settleResult = await callSettleServer(eventState, entry, hold);
+
+    if (settleResult.final_decision === "REFUND") {
+      const refund = markRefundCompleted(
+        eventState,
+        entry,
+        settleResult.verify_note || "Settle server decided to refund",
+        settleResult.settle_tx
+      );
+
+      return res.status(201).json({
+        event: eventState.event,
+        queue: queueSnapshot(eventState, entry),
+        offered_seat: null,
+        refund,
+        settle_result: settleResult,
+        seat_statuses: seatStatusRows(eventState),
+      });
+    }
+
+    const order = confirmHold(eventState, hold, settleResult.settle_tx);
+    res.status(201).json({
+      event: eventState.event,
+      queue: queueSnapshot(eventState, entry),
+      offered_seat: hold,
+      order,
+      settle_result: settleResult,
+      remainingSeats: publicSeatRows(eventState),
+      seat_statuses: seatStatusRows(eventState),
+    });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
 app.post("/admin/scenario", (req, res) => {
   const eventState = getOrCreateEvent(req.body.event || defaultEventName);
   eventState.sale_status = req.body.sale_status || "OPEN";
@@ -575,6 +734,7 @@ app.listen(PORT, () => {
   console.log("POST /queue/offer");
   console.log("POST /purchase/confirm");
   console.log("POST /settlement/mark-paid");
+  console.log("POST /demo/settle-offer");
   console.log("POST /refund/request");
   console.log("POST /refund/mark-refunded");
 });
