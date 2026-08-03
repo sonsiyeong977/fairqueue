@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FairQueue Dashboard</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="page-header">
+        <div>
+          <p class="section-kicker">FairQueue · Official Ticketing</p>
+          <h1>IU 2024 CONCERT [H.E.R]</h1>
+          <p class="venue">KSPO DOME (올림픽체조경기장)</p>
+        </div>
+        <div class="header-actions">
+          <button class="ghost-button" id="successDemoBtn" type="button">
+            <span class="signal success"></span>
+            성공 데모 시작
+          </button>
+          <button class="ghost-button" id="refundDemoBtn" type="button">
+            <span class="signal danger"></span>
+            환불 데모 시작
+          </button>
+        </div>
+      </header>
+
+      <section class="booking-grid" id="bookingView">
+        <section class="poster-panel">
+          <div class="poster-frame">
+            <img src="./assets/concert-stage.png" alt="콘서트 무대 이미지" />
+          </div>
+        </section>
+
+        <aside class="reservation-panel">
+          <section class="card ai-card">
+            <div class="card-title">
+              <span class="icon-mark">✦</span>
+              <h2>AI 스마트 예약</h2>
+            </div>
+            <label class="prompt-field">
+              <span>자연어 요청</span>
+              <textarea id="naturalRequest">아이유 콘서트 R석으로 구해주세요. 최대 20만원까지 낼 수 있고 1장 필요해요.</textarea>
+            </label>
+            <div class="parse-box">
+              <div class="parse-title">Gemini Parsing Result</div>
+              <dl>
+                <div>
+                  <dt>이벤트</dt>
+                  <dd id="parsedEvent">IU Concert</dd>
+                </div>
+                <div>
+                  <dt>좌석</dt>
+                  <dd id="parsedSeats">R석, 대안 S석</dd>
+                </div>
+                <div>
+                  <dt>최대 가격</dt>
+                  <dd id="parsedPrice">200,000원</dd>
+                </div>
+                <div>
+                  <dt>수량</dt>
+                  <dd id="parsedCount">1매</dd>
+                </div>
+                <div>
+                  <dt>정책</dt>
+                  <dd>조건 불충족 시 자동 환불</dd>
+                </div>
+              </dl>
+            </div>
+          </section>
+
+          <section class="card condition-card">
+            <h2>예매 조건 최종 확인</h2>
+            <form id="bookingForm">
+              <label>
+                <span>사용자 ID</span>
+                <input id="userId" value="demo-user-1" />
+              </label>
+
+              <div class="field-row">
+                <label>
+                  <span>1순위 좌석</span>
+                  <select id="primaryGrade">
+                    <option value="VIP">VIP석</option>
+                    <option value="R" selected>R석</option>
+                    <option value="S">S석</option>
+                  </select>
+                </label>
+                <label>
+                  <span>대안 좌석</span>
+                  <select id="fallbackGrade">
+                    <option value="S" selected>S석</option>
+                    <option value="R">R석</option>
+                    <option value="VIP">VIP석</option>
+                    <option value="">없음</option>
+                  </select>
+                </label>
+              </div>
+
+              <label>
+                <span>최대 수용 가격 (KRW)</span>
+                <input id="maxPrice" type="number" min="0" step="1000" value="200000" />
+              </label>
+
+              <div class="field-row">
+                <label>
+                  <span>대안 최대 가격 (KRW)</span>
+                  <input id="fallbackPrice" type="number" min="0" step="1000" value="150000" />
+                </label>
+                <label>
+                  <span>수량</span>
+                  <input id="seatCount" type="number" min="1" max="4" value="1" />
+                </label>
+              </div>
+
+              <button class="primary-button" type="submit">대기열 참가 및 결제 예치</button>
+              <p class="microcopy">Anchor PDA Escrow 기반 예치 · 조건 불충족 시 자동 환불</p>
+            </form>
+          </section>
+        </aside>
+      </section>
+
+      <section class="detail-grid">
+        <section class="card info-card">
+          <h2>공연 상세 정보</h2>
+          <p>IU의 2024년 첫 월드투어 서울 공연. 사용자가 위임한 예매 조건 안에서 공식 대기열 순서를 그대로 준수합니다.</p>
+          <table>
+            <thead>
+              <tr>
+                <th>등급</th>
+                <th>정상가 (KRW)</th>
+                <th>상태</th>
+              </tr>
+            </thead>
+            <tbody id="seatTable"></tbody>
+          </table>
+        </section>
+
+        <section class="card json-card">
+          <div class="card-title compact">
+            <h2>위임 조건 JSON</h2>
+            <button class="ghost-button small" id="refreshBtn" type="button">상태 새로고침</button>
+          </div>
+          <pre id="conditionJson"></pre>
+        </section>
+      </section>
+
+      <section class="progress-view" id="progressView">
+        <div class="progress-header">
+          <div>
+            <h2>예매 진행 현황</h2>
+            <p>IU 2024 CONCERT [H.E.R] · KSPO DOME</p>
+          </div>
+          <button class="ghost-button" id="resetBtn" type="button">처음으로 돌아가기</button>
+        </div>
+
+        <section class="stepper" id="stepper"></section>
+
+        <section class="result-grid">
+          <section class="card queue-card">
+            <div class="card-title">
+              <span class="icon-mark muted">◷</span>
+              <h2>대기열 상태</h2>
+              <span class="status-chip" id="queueStatus">READY</span>
+            </div>
+            <div class="queue-number">
+              <span>현재 상태</span>
+              <strong id="queueHeadline">대기 전</strong>
+            </div>
+            <div class="queue-stats">
+              <div>
+                <span>앞 대기자</span>
+                <strong id="waitingAhead">-</strong>
+              </div>
+              <div>
+                <span>진행 상태</span>
+                <strong id="progressState">준비</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="card assignment-card" id="assignmentCard">
+            <div class="card-title">
+              <span class="ticket-icon">표</span>
+              <h2>좌석 배정 결과</h2>
+              <span class="status-chip" id="matchBadge">WAITING</span>
+            </div>
+            <div class="assignment-main">
+              <span>배정된 좌석</span>
+              <strong id="assignedSeat">대기 중</strong>
+            </div>
+            <div class="payment-box">
+              <span>최종 정산 금액</span>
+              <strong id="settlementAmount">-</strong>
+            </div>
+            <div class="reason-panel" id="reasonPanel">조건을 제출하면 공식 대기열과 온체인 정산 결과가 표시됩니다.</div>
+          </section>
+
+          <section class="card chain-card">
+            <div class="card-title">
+              <span class="icon-mark blue">◇</span>
+              <h2>On-chain Settlement</h2>
+            </div>
+            <div class="chain-line">
+              <article>
+                <span class="dot-node success"></span>
+                <p>자금 예치 (DEPOSIT)</p>
+                <strong id="fundAmount">-</strong>
+                <a id="fundTx" href="#" target="_blank" rel="noreferrer">fund_tx 대기 중</a>
+              </article>
+              <article>
+                <span class="dot-node danger" id="settleNode"></span>
+                <p id="settleLabel">정산/환불 대기</p>
+                <strong id="settleAmount">-</strong>
+                <a id="settleTx" href="#" target="_blank" rel="noreferrer">settle_tx 대기 중</a>
+              </article>
+            </div>
+            <a class="explorer-button" id="explorerMain" href="https://explorer.solana.com/address/618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj?cluster=devnet" target="_blank" rel="noreferrer">
+              블록체인 Explorer에서 확인
+            </a>
+          </section>
+        </section>
+      </section>
+
+      <section class="card log-card">
+        <div class="card-title compact">
+          <h2>데모 로그</h2>
+          <button class="ghost-button small" id="clearLogBtn" type="button">지우기</button>
+        </div>
+        <ol id="eventLog"></ol>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
