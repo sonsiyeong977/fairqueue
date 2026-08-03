@@ -240,7 +240,7 @@ h2 {
 
 .icon-mark,
 .ticket-icon {
-  color: var(--blue);
+  color: var(--navy);
   font-weight: 900;
 }
 
@@ -249,11 +249,11 @@ h2 {
 }
 
 .icon-mark.blue {
-  color: var(--blue);
+  color: var(--navy);
 }
 
 .ticket-icon {
-  color: var(--red);
+  color: var(--navy);
 }
 
 .prompt-field,
@@ -550,7 +550,7 @@ pre {
 .queue-number strong {
   display: block;
   margin-top: 10px;
-  color: var(--red);
+  color: var(--green-dark);
   font-size: 42px;
   line-height: 1;
 }
@@ -570,7 +570,7 @@ pre {
 }
 
 .assignment-card {
-  border-top: 4px solid var(--red);
+  border-top: 4px solid var(--green);
 }
 
 .assignment-main {

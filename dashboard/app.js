@@ -238,7 +238,7 @@ function renderResult(rawPayload) {
   $("matchBadge").className = `status-chip ${isRefund ? "warning" : "success"}`;
   $("assignedSeat").textContent = isRefund ? "조건에 맞는 좌석 없음" : `${grade}석`;
   $("settlementAmount").textContent = isRefund ? "-" : formatKrw(amount);
-  $("assignmentCard").style.borderTopColor = isRefund ? "#a92a23" : "#e60012";
+  $("assignmentCard").style.borderTopColor = isRefund ? "#a92a23" : "#13b96d";
 
   if (isRefund) {
     $("reasonPanel").className = "reason-panel refund";
