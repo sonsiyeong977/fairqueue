@@ -136,7 +136,7 @@ FairQueue의 온체인 정산은 Solana Devnet에 배포된 Anchor 프로그램�
 </td>
 <td width="50%" valign="top">
 
-### Google Cloud / Gemini
+### ◎ Google Cloud / Gemini
 
 - **자연어 조건 파싱** — 1차 조건과 대안 규칙까지 구조화
 - **근거 있는 1차 판단** — 제안된 좌석과 조건을 비교해 판단 근거(reasoning)를 함께 생성
