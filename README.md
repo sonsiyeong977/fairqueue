@@ -58,13 +58,25 @@ FairQueue는 유저가 조건과 함께 결제 예상 금액을 **온체인에 �
 |:---|:---|:---:|
 | 자연어 → 조건 파싱 | Gemini가 유저 요청을 `primary` + `fallback_rules` 구조로 변환 | ✅ |
 | 플랫폼 API 연동 | Express 기반 좌석 상태 API와 실시간 HTTP 통신 | ✅ |
-| 온체인 예치 | 사람 승인 없는 agent keypair 자율 서명으로 Devnet 트랜잭션 발생 | ✅ |
+| 온체인 예치 | Anchor PDA escrow에 agent keypair 자율 서명으로 Devnet 트랜잭션 발생 | ✅ |
 | Gemini 판단 + 결정론적 재검증 | Gemini가 제안하고, 별도의 결정론적 검증 로직이 조건 충족 여부를 한 번 더 확인 후 실행 | ✅ |
-| 조건별 정산/환불 | 결제 시 판매자 지갑, 환불 시 유저 지갑으로 정확히 분기 | ✅ |
-| 차액 자동 반환 | 예치 금액 > 실결제 금액일 경우 차액을 자동으로 유저에게 반환 | ✅ |
+| 조건별 정산/환불 | 조건 충족 시 `release`, 조건 불충족/매진 시 `refund`로 정확히 분기 | ✅ |
+| 데모 대시보드 | 성공 케이스와 환불 케이스를 UI에서 실행하고 Tx Hash를 Explorer로 확인 | ✅ |
 | 부정 패턴 탐지 (PoC) | 요청 로그 패턴을 분석해 매크로/다중 계정 의심 여부를 판정하는 개념 검증 | ✅ |
 
 세 가지 핵심 시나리오(1차 확보 성공 / 대안으로 확보 성공 / 전량 매진 후 환불) 모두 실제 Devnet에서 트랜잭션 서명·전송·확정까지 재현 가능하게 실행됩니다.
+
+검증된 Anchor Program ID:
+
+```text
+618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj
+```
+
+Solana Explorer(Devnet):
+
+```text
+https://explorer.solana.com/address/618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj?cluster=devnet
+```
 
 <br>
 
@@ -75,7 +87,7 @@ FairQueue는 유저가 조건과 함께 결제 예상 금액을 **온체인에 �
    ▼
 [Gemini] 조건 파싱 → { primary, fallback_rules }
    ▼
-[Solana Devnet] 예상 최대 금액 온체인 예치 (자율 서명)
+[Solana Devnet] Anchor PDA Escrow에 결제 대상 금액 예치 (자율 서명)
    ▼
 [Official Queue] 공식 대기열 진입, 순번 대기
    ▼ (순번 도달)
@@ -86,8 +98,8 @@ FairQueue는 유저가 조건과 함께 결제 예상 금액을 **온체인에 �
 [Deterministic Verification Layer] Gemini 판단을 코드 레벨에서 재검증
    │   (가격·등급이 실제 조건을 벗어나면 강제로 REFUND 처리)
    ▼
-   ├─ 조건 충족 → 판매자 지갑으로 정산, 차액 자동 환불
-   └─ 조건 불충족/매진 → 예치금 즉시 전액 환불
+   ├─ 조건 충족 → release()로 판매자 지갑 정산
+   └─ 조건 불충족/매진 → refund()로 유저/agent 지갑 환불
 
 🔍 결제·환불·배정 결과는 트랜잭션으로 기록되어 온체인에서 검증 가능
    (대기열 순번 자체는 애플리케이션 상태로 관리되며, 온체인에 기록되는 대상이 아님)
@@ -132,8 +144,10 @@ FairQueue는 유저가 조건과 함께 결제 예상 금액을 **온체인에 �
 |:---|:---|
 | AI | Google Gemini (`gemini-flash-latest`) — 조건 파싱 및 1차 판단 |
 | 검증 | 결정론적 정책 엔진 (코드 기반 재검증 레이어) |
-| 결제/온체인 | Solana (Devnet), `@solana/web3.js` |
+| 결제/온체인 | Solana Devnet, Anchor (Rust), PDA Escrow |
+| Solana Client | `@coral-xyz/anchor`, `@solana/web3.js` |
 | 백엔드 | Node.js, Express |
+| 프론트엔드 | HTML, CSS, JavaScript 기반 데모 대시보드 |
 | 지갑/서명 | Agent keypair 기반 자율 서명 (승인 팝업 없음) |
 
 </div>
@@ -148,25 +162,40 @@ cd fairqueue
 npm install
 ```
 
-`.env` 파일 설정:
+`.env` 파일 설정 :
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key
+SOLANA_CLUSTER=devnet
+SETTLE_SERVER_URL=http://localhost:4000
+SETTLE_API_KEY=fairqueue-demo-key
+# 선택: 기본 Solana CLI 지갑이 아닌 경우에만 지정
+# AGENT_KEYPAIR_PATH=/home/you/.config/solana/id.json
 ```
 
-**터미널 1 — 플랫폼 시뮬레이터**
+**터미널 1 — 정산 API 서버**
 ```bash
-cd platform-sim
-node server.js
+set -a
+source .env
+set +a
+npm run settle
 ```
 
-**터미널 2 — 정산 API 서버**
+**터미널 2 — 플랫폼 시뮬레이터 + 대시보드**
 ```bash
-cd agent
-node settle-server.js
+set -a
+source .env
+set +a
+npm run platform
 ```
 
-`POST /settle`로 요청을 보내면 조건 파싱 → 예치 → Gemini 판단 → 결정론적 재검증 → 정산/환불까지 처리되며, 각 단계의 Solana Explorer 링크가 응답으로 반환됩니다.
+대시보드 접속:
+
+```text
+http://localhost:3001/dashboard/
+```
+
+대시보드에서 성공 케이스와 환불 케이스를 실행하면 플랫폼 시뮬레이터가 `/demo/settle-offer`를 통해 정산 서버의 `/settle`을 호출하고, Anchor escrow의 `deposit` → `release` 또는 `refund` 결과 Tx Hash를 반환합니다.
 
 <br>
 
@@ -176,14 +205,19 @@ node settle-server.js
 fairqueue/
 ├── agent/
 │   ├── main.js              # 전체 파이프라인 데모 실행 스크립트
-│   ├── settle-server.js     # /settle API 서버 (외부 대기열 시스템과 연동)
+│   ├── settle-server.js     # /settle API 서버 (Gemini + Anchor escrow 호출)
 │   ├── parse-test.js        # 조건 파싱 단독 테스트
 │   ├── fallback-test.js     # 판단 로직 단독 테스트
-│   ├── fraud-detect.js      # 부정 패턴 탐지 PoC
-│   └── escrow-wallet.json   # 에스크로 지갑 키페어 (gitignore 처리됨)
+│   └── fraud-detect.js      # 부정 패턴 탐지 PoC
+├── anchor-escrow/
+│   ├── programs/            # Anchor escrow program (deposit/release/refund)
+│   └── idl/                 # 서버 호출용 Anchor IDL
 ├── platform-sim/
-│   └── server.js            # 좌석 상태 관리 Express API
+│   └── server.js            # 좌석/대기열/Offer 상태 관리 Express API
+├── dashboard/
+│   └── index.html           # 데모 대시보드
 ├── docs/
+│   ├── PLATFORM_SIM_API.md  # 플랫폼 시뮬레이터 API 문서
 │   └── PRODUCT_INTRO.md     # 프로덕트 소개서
 └── README.md
 ```
@@ -198,8 +232,8 @@ fairqueue/
 |:---|:---|
 | 혁신성 및 UX | 조건 위임 기반 자동 정산 + 즉시 환불 + 결정론적 검증으로 안전성 확보 |
 | AI 활용도 | Gemini 기반 조건 파싱 · 근거 있는 판단 · 결정론적 레이어와의 역할 분리 |
-| 인프라 연동 | Solana 온체인 에스크로, USDC, Solana Pay/pay.sh |
-| 실제 구동 여부 | 실제 데브넷 트랜잭션 로그로 검증 |
+| 인프라 연동 | 현재 구현: Solana Devnet + Anchor PDA Escrow / 확장 가능: USDC, Solana Pay |
+| 실제 구동 여부 | 실제 Devnet 트랜잭션과 데모 대시보드로 검증 |
 
 </div>
 
