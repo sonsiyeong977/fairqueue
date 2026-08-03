@@ -535,7 +535,9 @@ pre {
 .queue-number {
   display: grid;
   place-items: center;
-  min-height: 190px;
+  align-content: center;
+  min-height: 156px;
+  padding-top: 4px;
   text-align: center;
 }
 
