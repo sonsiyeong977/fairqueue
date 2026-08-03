@@ -40,7 +40,7 @@ FairQueue는 유저가 조건과 함께 결제 예상 금액을 **온체인에 �
 
 <div align="center">
 
-| | 🤖 기존 매크로 | 🎟️ FairQueue |
+| | 기존 매크로 | 🎟️ FairQueue |
 |:---:|:---:|:---:|
 | **대기열 처리** | 우회·편법 시도 | 정상 순서 그대로 (1계정 1에이전트) |
 | **작동 시점** | 좌석을 스스로 탐색·선점 | 플랫폼이 공식 부여한 Offer에 대해서만 작동 |
@@ -101,10 +101,10 @@ https://explorer.solana.com/address/618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj
    ├─ 조건 충족 → release()로 판매자 지갑 정산
    └─ 조건 불충족/매진 → refund()로 유저/agent 지갑 환불
 
-🔍 결제·환불·배정 결과는 트랜잭션으로 기록되어 온체인에서 검증 가능
+ 결제·환불·배정 결과는 트랜잭션으로 기록되어 온체인에서 검증 가능
    (대기열 순번 자체는 애플리케이션 상태로 관리되며, 온체인에 기록되는 대상이 아님)
 
-🔍 모든 트랜잭션은 Solana Explorer(Devnet)에서 검증 가능
+ 모든 트랜잭션은 Solana Explorer(Devnet)에서 검증 가능
 ```
 
 <br>
@@ -148,7 +148,7 @@ FairQueue의 온체인 정산은 Solana Devnet에 배포된 Anchor 프로그램�
 
 <br>
 
-## 🛠️ 기술 스택
+## 기술 스택
 
 <div align="center">
 
