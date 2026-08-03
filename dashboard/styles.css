@@ -550,7 +550,7 @@ pre {
 .queue-number strong {
   display: block;
   margin-top: 10px;
-  color: var(--green-dark);
+  color: var(--ink);
   font-size: 42px;
   line-height: 1;
 }
@@ -670,7 +670,7 @@ pre {
 }
 
 a {
-  color: var(--blue);
+  color: var(--muted);
   font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 13px;
   font-weight: 700;
@@ -682,9 +682,10 @@ a {
   display: grid;
   place-items: center;
   min-height: 50px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--green);
   border-radius: 8px;
-  background: #f6f8fb;
+  background: #eafbf3;
+  color: var(--green-dark);
   font-family: inherit;
   font-size: 14px;
   font-weight: 900;
