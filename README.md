@@ -54,8 +54,8 @@ FairQueue는 유저가 조건과 함께 결제 예상 금액을 **온체인에 �
 
 아래 흐름은 실제 Solana Devnet 트랜잭션, 실제 Gemini API 호출, 실제 백엔드 API 통신으로 end-to-end 검증되었습니다.
 
-| 단계 | 검증 내용 | 상태 |
-|:---|:---|:---:|
+| 단계 | 검증 내용 |
+|:---|:---|
 | 자연어 → 조건 파싱 | Gemini가 유저 요청을 `primary` + `fallback_rules` 구조로 변환 |
 | 플랫폼 API 연동 | Express 기반 좌석 상태 API와 실시간 HTTP 통신 |
 | 온체인 예치 | Anchor PDA escrow에 agent keypair 자율 서명으로 Devnet 트랜잭션 발생 |
