@@ -310,7 +310,7 @@ function bind() {
     $("eventLog").innerHTML = "";
   });
 
-  ["naturalRequest", "primaryGrade", "fallbackGrade", "maxPrice", "fallbackPrice", "seatCount"].forEach((id) => {
+  ["primaryGrade", "fallbackGrade", "maxPrice", "fallbackPrice", "seatCount"].forEach((id) => {
     $(id).addEventListener("input", renderConditionSummary);
   });
 }
