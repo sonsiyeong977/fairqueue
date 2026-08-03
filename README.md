@@ -27,10 +27,10 @@
 
 | 문제 | 영향 |
 |:---|:---|
-| ⏳ 대기열 순번이 올 때까지 자리 유무를 알 수 없음 | 유저 경험 저하 |
-| 💳 짧은 결제 시간 안에 카드 인증 오류·입력 지연으로 구매 기회를 놓치는 경우 발생 | 플랫폼의 **순수 매출 손실** |
-| 🔁  매진 후 환불 처리에 시간이 걸리는 경우가 흔함 | CS 부담, 고객 불만 |
-| 🤖 매크로/암표 대응 비용 | 지속적인 탐지·차단 리소스 소모 |
+| 대기열 순번이 올 때까지 자리 유무를 알 수 없음 | 유저 경험 저하 |
+| 짧은 결제 시간 안에 카드 인증 오류·입력 지연으로 구매 기회를 놓치는 경우 발생 | 플랫폼의 **순수 매출 손실** |
+| 매진 후 환불 처리에 시간이 걸리는 경우가 흔함 | CS 부담, 고객 불만 |
+| 매크로/암표 대응 비용 | 지속적인 탐지·차단 리소스 소모 |
 
 <br>
 
@@ -80,7 +80,7 @@ https://explorer.solana.com/address/618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj
 
 <br>
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 [User] 자연어 조건 및 최대 예산 입력
@@ -121,7 +121,7 @@ FairQueue의 온체인 정산은 Solana Devnet에 배포된 Anchor 프로그램�
 
 <br>
 
-## 💡 왜 Solana × Google Cloud인가
+## 왜 Solana × Google Cloud인가
 
 <table>
 <tr>
@@ -166,7 +166,7 @@ FairQueue의 온체인 정산은 Solana Devnet에 배포된 Anchor 프로그램�
 
 <br>
 
-## 🖥️ Demo Dashboard
+## Demo Dashboard
 
 데모 대시보드는 플랫폼 운영자와 심사자가 전체 흐름을 한 화면에서 확인할 수 있도록 구성했습니다.
 
@@ -178,7 +178,7 @@ FairQueue의 온체인 정산은 Solana Devnet에 배포된 Anchor 프로그램�
 
 <br>
 
-## 🚀 로컬 실행 방법
+## 로컬 실행 방법
 
 ```bash
 git clone https://github.com/sonsiyeong977/fairqueue.git
