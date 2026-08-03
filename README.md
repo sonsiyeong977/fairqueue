@@ -109,6 +109,18 @@ https://explorer.solana.com/address/618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj
 
 <br>
 
+## 🔐 Anchor Escrow Program
+
+FairQueue의 온체인 정산은 Solana Devnet에 배포된 Anchor 프로그램으로 처리됩니다.
+
+- `deposit` — agent 지갑이 결제 대상 금액을 escrow PDA에 예치
+- `release` — 조건 충족 시 authority가 seller 지갑으로 정산
+- `refund` — 조건 불충족 또는 매진 시 authority가 user/agent 지갑으로 환불
+- `EscrowState` — `order_id`, `user`, `seller`, `authority`, `amount`, `status`, `bump` 저장
+- 중복 실행 방지 — 이미 `Released` 또는 `Refunded` 상태인 escrow는 다시 처리되지 않음
+
+<br>
+
 ## 💡 왜 Solana × Google Cloud인가
 
 <table>
@@ -151,6 +163,18 @@ https://explorer.solana.com/address/618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj
 | 지갑/서명 | Agent keypair 기반 자율 서명 (승인 팝업 없음) |
 
 </div>
+
+<br>
+
+## 🖥️ Demo Dashboard
+
+데모 대시보드는 플랫폼 운영자와 심사자가 전체 흐름을 한 화면에서 확인할 수 있도록 구성했습니다.
+
+- 예매 조건 작성: 1순위 좌석, 대안 좌석, 최대 가격, 수량 입력
+- 성공 케이스: 조건 충족 좌석 Offer → `deposit` → `release`
+- 환불 케이스: 조건 충족 좌석 없음 → `deposit` → `refund`
+- On-chain Settlement 패널: `fund_tx`, `settle_tx`와 Solana Explorer 링크 표시
+- 대기열/좌석 상태: platform simulator API와 연동
 
 <br>
 
