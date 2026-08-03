@@ -40,6 +40,15 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.hidden {
+  display: none !important;
+}
+
 .app-shell {
   width: min(1400px, calc(100% - 32px));
   margin: 0 auto;
@@ -209,6 +218,11 @@ h2 {
   gap: 22px;
 }
 
+.condition-card {
+  position: sticky;
+  top: 18px;
+}
+
 .card {
   padding: 24px;
 }
@@ -294,6 +308,33 @@ select:focus {
   background: #eef5ff;
 }
 
+.condition-summary {
+  display: grid;
+  gap: 10px;
+  margin-top: 2px;
+  padding: 16px;
+  border: 1px solid #cbdcf8;
+  border-radius: 8px;
+  background: #eef5ff;
+}
+
+.condition-summary div {
+  display: grid;
+  grid-template-columns: 105px 1fr;
+  gap: 10px;
+}
+
+.condition-summary span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.condition-summary strong {
+  text-align: right;
+  font-size: 14px;
+}
+
 .parse-title {
   margin-bottom: 12px;
   color: var(--blue);
@@ -339,6 +380,10 @@ form {
   display: grid;
   grid-template-columns: minmax(520px, 1.28fr) minmax(390px, 0.92fr);
   gap: 22px;
+  margin-top: 22px;
+}
+
+.info-card {
   margin-top: 22px;
 }
 

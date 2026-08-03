@@ -2,9 +2,8 @@ const PROGRAM_ID = "618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj";
 const EVENT_NAME = "IU Concert";
 
 const state = {
-  mode: "idle",
   event: null,
-  result: null,
+  running: false,
 };
 
 const scenarios = {
@@ -46,43 +45,39 @@ function explorerTx(tx) {
 
 function conditionsFromForm() {
   const fallbackGrade = $("fallbackGrade").value;
-  const fallbackPrice = Number($("fallbackPrice").value);
-
   return {
     primary: {
       grade: $("primaryGrade").value,
       max_price_krw: Number($("maxPrice").value),
     },
     fallback_rules: fallbackGrade
-      ? [
-          {
-            grade: fallbackGrade,
-            max_price_krw: fallbackPrice,
-          },
-        ]
+      ? [{ grade: fallbackGrade, max_price_krw: Number($("fallbackPrice").value) }]
       : [],
     seat_count: Number($("seatCount").value),
   };
 }
 
-function parsedSummary() {
+function renderConditionSummary() {
   const conditions = conditionsFromForm();
   const fallback = conditions.fallback_rules[0];
-  $("parsedEvent").textContent = EVENT_NAME;
-  $("parsedSeats").textContent = `${conditions.primary.grade}석${fallback ? `, 대안 ${fallback.grade}석` : ""}`;
-  $("parsedPrice").textContent = formatKrw(conditions.primary.max_price_krw);
-  $("parsedCount").textContent = `${conditions.seat_count}매`;
-  $("conditionJson").textContent = JSON.stringify(
-    {
-      intent: "join_queue",
-      event: EVENT_NAME,
-      conditions,
-      user_wallet: "agent custodial keypair",
-      settlement: "Anchor PDA Escrow on Solana Devnet",
-    },
-    null,
-    2
-  );
+  $("conditionSummary").innerHTML = `
+    <div>
+      <span>요청 좌석</span>
+      <strong>${conditions.primary.grade}석${fallback ? ` · 대안 ${fallback.grade}석` : ""}</strong>
+    </div>
+    <div>
+      <span>최대 예산</span>
+      <strong>${formatKrw(conditions.primary.max_price_krw)}</strong>
+    </div>
+    <div>
+      <span>수량</span>
+      <strong>${conditions.seat_count}매</strong>
+    </div>
+    <div>
+      <span>정책</span>
+      <strong>조건 불충족 시 자동 환불</strong>
+    </div>
+  `;
 }
 
 async function api(path, options = {}) {
@@ -91,24 +86,42 @@ async function api(path, options = {}) {
     ...options,
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.error || `${options.method || "GET"} ${path} failed`);
-  }
+  if (!response.ok) throw new Error(payload.error || `${options.method || "GET"} ${path} failed`);
   return payload;
 }
 
 function post(path, payload) {
-  return api(path, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  return api(path, { method: "POST", body: JSON.stringify(payload) });
 }
 
 function log(message) {
   const item = document.createElement("li");
-  const time = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const time = new Date().toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
   item.innerHTML = `<time>${time}</time>${message}`;
   $("eventLog").prepend(item);
+}
+
+function setButtonsDisabled(disabled) {
+  state.running = disabled;
+  $("successDemoBtn").disabled = disabled;
+  $("refundDemoBtn").disabled = disabled;
+  document.querySelector(".primary-button").disabled = disabled;
+}
+
+function showProgress() {
+  $("bookingView").classList.add("hidden");
+  $("progressView").classList.add("visible");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function showBooking() {
+  $("progressView").classList.remove("visible");
+  $("bookingView").classList.remove("hidden");
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function renderSteps(doneCount = 0, finalLabel = "Release/Refund") {
@@ -121,6 +134,26 @@ function renderSteps(doneCount = 0, finalLabel = "Release/Refund") {
     .join("");
 }
 
+function renderProgressPending(message) {
+  showProgress();
+  renderSteps(1);
+  $("queueStatus").textContent = "RUNNING";
+  $("queueStatus").className = "status-chip warning";
+  $("queueHeadline").textContent = "처리 중";
+  $("waitingAhead").textContent = "-";
+  $("progressState").textContent = "진행 중";
+  $("matchBadge").textContent = "WAITING";
+  $("matchBadge").className = "status-chip warning";
+  $("assignedSeat").textContent = "좌석 확인 중";
+  $("settlementAmount").textContent = "-";
+  $("reasonPanel").className = "reason-panel";
+  $("reasonPanel").textContent = message;
+  $("fundAmount").textContent = "-";
+  $("settleAmount").textContent = "-";
+  setTxLink("fundTx", null, "fund_tx 대기 중");
+  setTxLink("settleTx", null, "settle_tx 대기 중");
+}
+
 function seatStatusLabel(seat) {
   const available = seat.available_count ?? seat.count ?? 0;
   if (available <= 0) return "매진";
@@ -130,13 +163,15 @@ function seatStatusLabel(seat) {
 function renderSeats() {
   const seats = state.event?.seats || [];
   $("seatTable").innerHTML = seats
-    .map((seat) => `
-      <tr>
-        <td>${seat.grade}석</td>
-        <td>${formatKrw(seat.price_krw)}</td>
-        <td>${seatStatusLabel(seat)}</td>
-      </tr>
-    `)
+    .map(
+      (seat) => `
+        <tr>
+          <td>${seat.grade}석</td>
+          <td>${formatKrw(seat.price_krw)}</td>
+          <td>${seatStatusLabel(seat)}</td>
+        </tr>
+      `
+    )
     .join("");
 }
 
@@ -151,10 +186,7 @@ async function refreshEvents() {
 }
 
 async function setScenario(name) {
-  await post("/admin/scenario", {
-    event: EVENT_NAME,
-    seats: scenarios[name],
-  });
+  await post("/admin/scenario", { event: EVENT_NAME, seats: scenarios[name] });
   await refreshEvents();
 }
 
@@ -165,46 +197,43 @@ function setTxLink(elementId, tx, pendingText) {
     link.removeAttribute("href");
     return;
   }
-
   link.textContent = `${elementId}: ${shortTx(tx)}`;
   link.href = explorerTx(tx);
 }
 
 function normalizeDemoResult(payload) {
-  const decision = payload.final_decision || payload.decision || payload.settlement?.final_decision || "UNKNOWN";
-  const order = payload.order || payload.settlement?.order || null;
-  const refund = payload.refund || payload.settlement?.refund || null;
-  const offer = payload.offer || payload.offered_seat || payload.settlement?.offer || null;
-
+  const settle = payload.settle_result || payload.settlement || {};
+  const decision = payload.final_decision || settle.final_decision || settle.decision || "UNKNOWN";
+  const order = payload.order || null;
+  const refund = payload.refund || null;
+  const offer = payload.offer || payload.offered_seat || null;
   return {
     decision,
     order,
     refund,
     offer,
     queue: payload.queue || null,
-    fundTx: payload.fund_tx || payload.fundTx || payload.settlement?.fund_tx,
-    settleTx: payload.settle_tx || payload.refund_tx || payload.settleTx || payload.settlement?.settle_tx,
-    reason: payload.reason || payload.refund_reason || refund?.reason || payload.settlement?.reason,
+    fundTx: payload.fund_tx || settle.fund_tx,
+    settleTx: payload.settle_tx || settle.settle_tx || refund?.refund_tx_hash || order?.settlement_tx_hash,
+    reason: payload.reason || payload.refund_reason || refund?.reason || settle.verify_note || settle.gemini_reasoning,
   };
 }
 
 function renderResult(rawPayload) {
   const result = normalizeDemoResult(rawPayload);
-  const isRefund = result.decision === "REFUND" || result.refund;
+  const isRefund = result.decision === "REFUND" || Boolean(result.refund);
   const isFallback = result.decision === "SETTLE_FALLBACK" || result.offer?.match_type === "FALLBACK";
+  const conditions = conditionsFromForm();
   const grade = result.order?.grade || result.offer?.grade;
-  const amount = result.order?.price_krw || result.offer?.price_krw || conditionsFromForm().primary.max_price_krw;
+  const amount = result.order?.price_krw || result.offer?.price_krw || conditions.primary.max_price_krw;
   const finalLabel = isRefund ? "환불 완료 (Refund)" : "정산 완료 (Release)";
 
-  $("progressView").classList.add("visible");
   renderSteps(6, finalLabel);
-
   $("queueStatus").textContent = isRefund ? "REFUNDED" : "SETTLED";
   $("queueStatus").className = `status-chip ${isRefund ? "refund" : "success"}`;
   $("queueHeadline").textContent = "입장 가능";
   $("waitingAhead").textContent = "0명";
   $("progressState").textContent = "완료";
-
   $("matchBadge").textContent = isRefund ? "NO OFFER" : isFallback ? "MATCH: FALLBACK" : "MATCH: PRIMARY";
   $("matchBadge").className = `status-chip ${isRefund ? "warning" : "success"}`;
   $("assignedSeat").textContent = isRefund ? "조건에 맞는 좌석 없음" : `${grade}석`;
@@ -219,12 +248,12 @@ function renderResult(rawPayload) {
     $("reasonPanel").className = "reason-panel success";
     $("reasonPanel").textContent = isFallback
       ? `1순위 조건이 불가능해 대안 조건을 검증했고, ${grade}석 조건이 충족되어 판매자 정산을 완료했습니다.`
-      : `primary 조건(${grade}석, ${formatKrw(conditionsFromForm().primary.max_price_krw)} 이하)을 충족하여 판매자 정산을 완료했습니다.`;
+      : `primary 조건(${grade}석, ${formatKrw(conditions.primary.max_price_krw)} 이하)을 충족하여 판매자 정산을 완료했습니다.`;
     $("settleLabel").textContent = "정산 완료 (RELEASE)";
   }
 
   $("fundAmount").textContent = formatKrw(amount);
-  $("settleAmount").textContent = isRefund ? formatKrw(conditionsFromForm().primary.max_price_krw) : formatKrw(amount);
+  $("settleAmount").textContent = isRefund ? formatKrw(conditions.primary.max_price_krw) : formatKrw(amount);
   setTxLink("fundTx", result.fundTx, "fund_tx 대기 중");
   setTxLink("settleTx", result.settleTx, "settle_tx 대기 중");
   $("explorerMain").href = result.settleTx ? explorerTx(result.settleTx) : `https://explorer.solana.com/address/${PROGRAM_ID}?cluster=devnet`;
@@ -233,59 +262,60 @@ function renderResult(rawPayload) {
 }
 
 async function runDemo(scenarioName) {
-  $("progressView").classList.add("visible");
-  renderSteps(1);
-  state.mode = scenarioName;
+  if (state.running) return;
+  setButtonsDisabled(true);
+  renderProgressPending(`${scenarioName === "refund" ? "환불" : "성공"} 케이스를 실행하고 있습니다.`);
 
-  const userId = `${$("userId").value}-${Date.now().toString(36)}`;
-  const conditions = conditionsFromForm();
+  try {
+    const userId = `${$("userId").value}-${Date.now().toString(36)}`;
+    const conditions = conditionsFromForm();
+    log(`${scenarioName === "refund" ? "환불" : "성공"} 케이스 재고를 설정합니다.`);
+    await setScenario(scenarioName);
+    renderSteps(2);
 
-  log(`${scenarioName === "refund" ? "환불" : "성공"} 시나리오 재고를 설정합니다.`);
-  await setScenario(scenarioName);
-  renderSteps(2);
+    log("사용자를 공식 대기열에 등록합니다.");
+    const queue = await post("/queue/join", { event: EVENT_NAME, user_id: userId, conditions });
+    renderSteps(3);
 
-  log("공식 대기열 참가와 좌석 Offer, Anchor escrow 정산을 한 번에 실행합니다.");
-  const payload = await post("/demo/settle-offer", {
-    event: EVENT_NAME,
-    user_id: userId,
-    conditions,
-  });
+    log("데모를 위해 대기열 순번을 입장 가능 상태로 진행합니다.");
+    await post("/queue/advance", { event: EVENT_NAME, count: queue.position || 1 });
+    renderSteps(4);
 
-  state.result = payload;
-  renderResult(payload);
-  await refreshEvents();
+    log("좌석 Offer와 Anchor escrow 정산을 실행합니다.");
+    const payload = await post("/demo/settle-offer", { event: EVENT_NAME, queue_id: queue.queue_id });
+    renderResult(payload);
+    await refreshEvents();
+  } catch (error) {
+    $("queueStatus").textContent = "ERROR";
+    $("queueStatus").className = "status-chip warning";
+    $("queueHeadline").textContent = "실행 실패";
+    $("progressState").textContent = "확인 필요";
+    $("reasonPanel").className = "reason-panel refund";
+    $("reasonPanel").textContent = error.message;
+    log(`실행 실패: ${error.message}`);
+  } finally {
+    setButtonsDisabled(false);
+  }
 }
 
 function bind() {
-  $("bookingForm").addEventListener("submit", async (event) => {
+  $("bookingForm").addEventListener("submit", (event) => {
     event.preventDefault();
-    try {
-      await runDemo("success");
-    } catch (error) {
-      log(`실행 실패: ${error.message}`);
-      renderSteps(1);
-    }
+    runDemo("success");
   });
-
-  $("successDemoBtn").addEventListener("click", () => runDemo("success").catch((error) => log(`성공 데모 실패: ${error.message}`)));
-  $("refundDemoBtn").addEventListener("click", () => runDemo("refund").catch((error) => log(`환불 데모 실패: ${error.message}`)));
-  $("refreshBtn").addEventListener("click", refreshEvents);
-  $("resetBtn").addEventListener("click", () => {
-    state.result = null;
-    $("progressView").classList.remove("visible");
-    renderSteps(0);
-    log("화면을 초기 상태로 되돌렸습니다.");
-  });
+  $("successDemoBtn").addEventListener("click", () => runDemo("success"));
+  $("refundDemoBtn").addEventListener("click", () => runDemo("refund"));
+  $("resetBtn").addEventListener("click", showBooking);
   $("clearLogBtn").addEventListener("click", () => {
     $("eventLog").innerHTML = "";
   });
 
   ["naturalRequest", "primaryGrade", "fallbackGrade", "maxPrice", "fallbackPrice", "seatCount"].forEach((id) => {
-    $(id).addEventListener("input", parsedSummary);
+    $(id).addEventListener("input", renderConditionSummary);
   });
 }
 
 bind();
-parsedSummary();
+renderConditionSummary();
 renderSteps(0);
 refreshEvents();
