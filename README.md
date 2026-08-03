@@ -263,9 +263,13 @@ fairqueue/
 
 <br>
 
-## Team
+## Team 
+
+**Team Tickety**
 
 <div align="center">
+
+
 
 | 이름 | 역할 |
 |:---:|:---|
@@ -276,7 +280,7 @@ fairqueue/
 
 <br>
 
-## 📄 License
+## License
 
 MIT
 
