@@ -23,7 +23,7 @@
 
 <br>
 
-## 🚨 문제
+## Problem
 
 | 문제 | 영향 |
 |:---|:---|
@@ -34,7 +34,7 @@
 
 <br>
 
-## ✅ 해결책
+## Solution
 
 FairQueue는 유저가 조건과 함께 결제 예상 금액을 **온체인에 미리 예치**하게 합니다. 정상적인 공식 대기열 순서를 그대로 지키며, 순번이 되어 플랫폼이 좌석을 제안(Offer)하면 사전 위임된 조건과 비교해 자동으로 정산하거나 즉시 환불합니다. 이를 통해 결제 단계의 마찰을 줄이고, 매진 시 환불까지의 지연을 최소화하는 것을 목표로 합니다.
 
@@ -44,7 +44,7 @@ FairQueue는 유저가 조건과 함께 결제 예상 금액을 **온체인에 �
 |:---:|:---:|:---:|
 | **대기열 처리** | 우회·편법 시도 | 정상 순서 그대로 (1계정 1에이전트) |
 | **작동 시점** | 좌석을 스스로 탐색·선점 | 플랫폼이 공식 부여한 Offer에 대해서만 작동 |
-| **플랫폼과의 관계** | ❌ 대립적 (차단 대상) | ✅ 협력적 (매출 손실 방지 인프라) |
+| **플랫폼과의 관계** |  대립적 (차단 대상) | 협력적 (매출 손실 방지 인프라) |
 
 </div>
 
@@ -56,13 +56,13 @@ FairQueue는 유저가 조건과 함께 결제 예상 금액을 **온체인에 �
 
 | 단계 | 검증 내용 | 상태 |
 |:---|:---|:---:|
-| 자연어 → 조건 파싱 | Gemini가 유저 요청을 `primary` + `fallback_rules` 구조로 변환 | ✅ |
-| 플랫폼 API 연동 | Express 기반 좌석 상태 API와 실시간 HTTP 통신 | ✅ |
-| 온체인 예치 | Anchor PDA escrow에 agent keypair 자율 서명으로 Devnet 트랜잭션 발생 | ✅ |
-| Gemini 판단 + 결정론적 재검증 | Gemini가 제안하고, 별도의 결정론적 검증 로직이 조건 충족 여부를 한 번 더 확인 후 실행 | ✅ |
-| 조건별 정산/환불 | 조건 충족 시 `release`, 조건 불충족/매진 시 `refund`로 정확히 분기 | ✅ |
-| 데모 대시보드 | 성공 케이스와 환불 케이스를 UI에서 실행하고 Tx Hash를 Explorer로 확인 | ✅ |
-| 부정 패턴 탐지 (PoC) | 요청 로그 패턴을 분석해 매크로/다중 계정 의심 여부를 판정하는 개념 검증 | ✅ |
+| 자연어 → 조건 파싱 | Gemini가 유저 요청을 `primary` + `fallback_rules` 구조로 변환 |
+| 플랫폼 API 연동 | Express 기반 좌석 상태 API와 실시간 HTTP 통신 |
+| 온체인 예치 | Anchor PDA escrow에 agent keypair 자율 서명으로 Devnet 트랜잭션 발생 |
+| Gemini 판단 + 결정론적 재검증 | Gemini가 제안하고, 별도의 결정론적 검증 로직이 조건 충족 여부를 한 번 더 확인 후 실행 |
+| 조건별 정산/환불 | 조건 충족 시 `release`, 조건 불충족/매진 시 `refund`로 정확히 분기 |
+| 데모 대시보드 | 성공 케이스와 환불 케이스를 UI에서 실행하고 Tx Hash를 Explorer로 확인 |
+| 부정 패턴 탐지 (PoC) | 요청 로그 패턴을 분석해 매크로/다중 계정 의심 여부를 판정하는 개념 검증 |
 
 세 가지 핵심 시나리오(1차 확보 성공 / 대안으로 확보 성공 / 전량 매진 후 환불) 모두 실제 Devnet에서 트랜잭션 서명·전송·확정까지 재현 가능하게 실행됩니다.
 
@@ -80,7 +80,7 @@ https://explorer.solana.com/address/618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj
 
 <br>
 
-## 🏗️ 아키텍처
+## 🏗️ Architecture
 
 ```
 [User] 자연어 조건 및 최대 예산 입력
@@ -109,7 +109,7 @@ https://explorer.solana.com/address/618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj
 
 <br>
 
-## 🔐 Anchor Escrow Program
+## Anchor Escrow Program
 
 FairQueue의 온체인 정산은 Solana Devnet에 배포된 Anchor 프로그램으로 처리됩니다.
 
@@ -136,7 +136,7 @@ FairQueue의 온체인 정산은 Solana Devnet에 배포된 Anchor 프로그램�
 </td>
 <td width="50%" valign="top">
 
-### ✨ Google Cloud / Gemini
+### Google Cloud / Gemini
 
 - **자연어 조건 파싱** — 1차 조건과 대안 규칙까지 구조화
 - **근거 있는 1차 판단** — 제안된 좌석과 조건을 비교해 판단 근거(reasoning)를 함께 생성
@@ -223,7 +223,7 @@ http://localhost:3001/dashboard/
 
 <br>
 
-## 📁 프로젝트 구조
+## 프로젝트 구조
 
 ```
 fairqueue/
@@ -263,7 +263,7 @@ fairqueue/
 
 <br>
 
-## 👥 팀
+## Team
 
 <div align="center">
 
