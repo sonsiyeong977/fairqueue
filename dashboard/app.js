@@ -230,10 +230,34 @@ function normalizeDemoResult(payload) {
     refund,
     offer,
     queue: payload.queue || null,
+    seatStatuses: payload.seat_statuses || payload.remainingSeats || state.event?.seats || [],
     fundTx: payload.fund_tx || settle.fund_tx,
     settleTx: payload.settle_tx || settle.settle_tx || refund?.refund_tx_hash || order?.settlement_tx_hash,
     reason: payload.reason || payload.refund_reason || refund?.reason || settle.verify_note || settle.gemini_reasoning,
   };
+}
+
+function describeRuleFailure(rule, label, seatCount, seatRows) {
+  if (!rule?.grade) return `${label} 조건에 좌석 등급이 지정되지 않았습니다.`;
+  const seat = seatRows.find((row) => row.grade === rule.grade);
+  const available = Number(seat?.available_count ?? seat?.count ?? 0);
+
+  if (!seat) return `${label} ${rule.grade}석은 현재 판매 목록에 없습니다.`;
+  if (available < seatCount) return `${label} ${rule.grade}석은 요청 수량 ${seatCount}매보다 재고 ${available}매가 적습니다.`;
+  if (rule.max_price_krw && seat.price_krw > rule.max_price_krw) {
+    return `${label} ${rule.grade}석 가격 ${formatKrw(seat.price_krw)}이 최대 허용 금액 ${formatKrw(rule.max_price_krw)}을 초과합니다.`;
+  }
+  return `${label} ${rule.grade}석은 검증 조건을 통과하지 못했습니다.`;
+}
+
+function renderReasonList(title, reasons, closing) {
+  return `
+    <strong>${title}</strong>
+    <ul>
+      ${reasons.map((reason) => `<li>${reason}</li>`).join("")}
+    </ul>
+    <span>${closing}</span>
+  `;
 }
 
 function addOperatorTransaction(result, amount, grade, isRefund) {
@@ -299,6 +323,9 @@ function renderResult(rawPayload) {
   const grade = result.order?.grade || result.offer?.grade;
   const amount = result.order?.price_krw || result.offer?.price_krw || conditions.primary.max_price_krw;
   const finalLabel = isRefund ? "환불 완료 (Refund)" : "정산 완료 (Release)";
+  const seatRows = result.seatStatuses || [];
+  const seatCount = Number(conditions.seat_count || 1);
+  const primaryFailure = describeRuleFailure(conditions.primary, "1순위", seatCount, seatRows);
 
   renderSteps(6, finalLabel);
   $("queueStatus").textContent = isRefund ? "REFUNDED" : "SETTLED";
@@ -314,13 +341,30 @@ function renderResult(rawPayload) {
 
   if (isRefund) {
     $("reasonPanel").className = "reason-panel refund";
-    $("reasonPanel").innerHTML = `<strong>환불 사유</strong><br>${result.reason || "primary/fallback 조건을 충족하는 좌석이 없습니다."}`;
+    const rules = [conditions.primary, ...conditions.fallback_rules].filter(Boolean);
+    const reasons = rules.map((rule, index) =>
+      describeRuleFailure(rule, index === 0 ? "1순위" : `대안 ${index}`, seatCount, seatRows)
+    );
+    $("reasonPanel").innerHTML = renderReasonList(
+      "환불 사유",
+      reasons,
+      "primary/fallback 조건을 모두 만족하는 좌석이 없어 Anchor refund를 실행했습니다."
+    );
     $("settleLabel").textContent = "환불 완료 (REFUND)";
   } else {
     $("reasonPanel").className = "reason-panel success";
-    $("reasonPanel").textContent = isFallback
-      ? `1순위 조건이 불가능해 대안 조건을 검증했고, ${grade}석 조건이 충족되어 판매자 정산을 완료했습니다.`
-      : `primary 조건(${grade}석, ${formatKrw(conditions.primary.max_price_krw)} 이하)을 충족하여 판매자 정산을 완료했습니다.`;
+    if (isFallback) {
+      $("reasonPanel").innerHTML = renderReasonList(
+        "대안 조건 정산 사유",
+        [
+          primaryFailure,
+          `대안 ${grade}석은 요청 수량 ${seatCount}매와 최대 허용 금액 ${formatKrw(conditions.fallback_rules[0]?.max_price_krw)} 조건을 충족했습니다.`,
+        ],
+        "따라서 Gemini 판단 이후 결정론적 검증을 통과했고, 판매자 정산 release를 실행했습니다."
+      );
+    } else {
+      $("reasonPanel").textContent = `primary 조건(${grade}석, ${formatKrw(conditions.primary.max_price_krw)} 이하)을 충족하여 판매자 정산을 완료했습니다.`;
+    }
     $("settleLabel").textContent = "정산 완료 (RELEASE)";
   }
 
@@ -331,7 +375,7 @@ function renderResult(rawPayload) {
   $("explorerMain").href = result.settleTx ? explorerTx(result.settleTx) : `https://explorer.solana.com/address/${PROGRAM_ID}?cluster=devnet`;
 
   addOperatorTransaction(result, amount, grade, isRefund);
-  log(isRefund ? "조건 불충족으로 Anchor refund 트랜잭션을 확인했습니다." : "조건 충족으로 Anchor release 트랜잭션을 확인했습니다.");
+  log(isRefund ? "조건 불충족 건을 자동 환불 처리하고 온체인 refund Tx를 기록했습니다." : "조건 충족 건을 매출로 확정하고 온체인 release Tx를 기록했습니다.");
 }
 
 async function runDemo(scenarioName) {
@@ -342,19 +386,19 @@ async function runDemo(scenarioName) {
   try {
     const userId = `${$("userId").value}-${Date.now().toString(36)}`;
     const conditions = conditionsFromForm();
-    log(`${scenarioLabel(scenarioName)} 케이스 재고를 설정합니다.`);
+    log(`${scenarioLabel(scenarioName)} 시나리오의 좌석 재고를 운영 서버에 반영했습니다.`);
     await setScenario(scenarioName);
     renderSteps(2);
 
-    log("사용자를 공식 대기열에 등록합니다.");
+    log("사용자 조건을 공식 대기열에 등록하고 예치 가능 상태를 생성했습니다.");
     const queue = await post("/queue/join", { event: EVENT_NAME, user_id: userId, conditions });
     renderSteps(3);
 
-    log("데모를 위해 대기열 순번을 입장 가능 상태로 진행합니다.");
+    log("공식 대기열 순번이 도달해 좌석 Offer 검증 단계로 전환했습니다.");
     await post("/queue/advance", { event: EVENT_NAME, count: queue.position || 1 });
     renderSteps(4);
 
-    log("좌석 Offer와 Anchor escrow 정산을 실행합니다.");
+    log("좌석 Offer를 조건과 대조하고 Anchor escrow 정산을 요청했습니다.");
     const payload = await post("/demo/settle-offer", { event: EVENT_NAME, queue_id: queue.queue_id });
     renderResult(payload);
     await refreshEvents();

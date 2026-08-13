@@ -615,6 +615,23 @@ pre {
   line-height: 1.65;
 }
 
+.reason-panel strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--ink);
+}
+
+.reason-panel ul {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding-left: 18px;
+}
+
+.reason-panel li {
+  padding-left: 2px;
+}
+
 .reason-panel.success {
   border-color: #b8ead3;
   background: #eafbf3;
