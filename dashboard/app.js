@@ -264,7 +264,7 @@ function renderReasonList(title, reasons, closing) {
   `;
 }
 
-function addOperatorTransaction(result, amount, grade, isRefund) {
+function addOperatorTransaction(result, amount, grade, quantity, isRefund) {
   const fee = isRefund ? 0 : Math.round(amount * 0.015);
   state.transactions.unshift({
     time: new Date().toLocaleTimeString("ko-KR", {
@@ -274,6 +274,7 @@ function addOperatorTransaction(result, amount, grade, isRefund) {
     }),
     decision: result.decision,
     grade: isRefund ? "-" : `${grade}석`,
+    quantity,
     amount: isRefund ? 0 : amount,
     refundAmount: isRefund ? amount : 0,
     fee,
@@ -309,6 +310,7 @@ function renderOperatorView() {
               <td>${item.time}</td>
               <td><span class="decision-pill ${isRefund ? "refund" : "settle"}">${item.decision}</span></td>
               <td>${item.grade}</td>
+              <td>${item.quantity}매</td>
               <td>${isRefund ? "환불 처리" : formatKrw(item.amount)}</td>
               <td>${isRefund ? "0원" : formatKrw(item.fee)}</td>
               <td>${txCell}</td>
@@ -316,7 +318,7 @@ function renderOperatorView() {
           `;
         })
         .join("")
-    : `<tr><td colspan="6">아직 처리된 거래가 없습니다.</td></tr>`;
+    : `<tr><td colspan="7">아직 처리된 거래가 없습니다.</td></tr>`;
 }
 
 function renderResult(rawPayload) {
@@ -325,10 +327,12 @@ function renderResult(rawPayload) {
   const isFallback = result.decision === "SETTLE_FALLBACK" || result.offer?.match_type === "FALLBACK";
   const conditions = conditionsFromForm();
   const grade = result.order?.grade || result.offer?.grade;
-  const amount = result.order?.price_krw || result.offer?.price_krw || conditions.primary.max_price_krw;
+  const quantity = Number(result.order?.count || result.offer?.count || conditions.seat_count || 1);
+  const unitPrice = result.order?.price_krw || result.offer?.price_krw || conditions.primary.max_price_krw;
+  const amount = unitPrice * quantity;
   const finalLabel = isRefund ? "환불 완료 (Refund)" : "정산 완료 (Release)";
   const seatRows = result.seatStatuses || [];
-  const seatCount = Number(conditions.seat_count || 1);
+  const seatCount = quantity;
   const primaryFailure = describeRuleFailure(conditions.primary, "1순위", seatCount, seatRows);
 
   renderSteps(6, finalLabel);
@@ -378,7 +382,7 @@ function renderResult(rawPayload) {
   setTxLink("settleTx", result.settleTx, "settle_tx 대기 중");
   $("explorerMain").href = result.settleTx ? explorerTx(result.settleTx) : `https://explorer.solana.com/address/${PROGRAM_ID}?cluster=devnet`;
 
-  addOperatorTransaction(result, amount, grade, isRefund);
+  addOperatorTransaction(result, amount, grade, quantity, isRefund);
   log(isRefund ? "조건 불충족 건을 자동 환불 처리하고 온체인 refund Tx를 기록했습니다." : "조건 충족 건을 매출로 확정하고 온체인 release Tx를 기록했습니다.");
 }
 
