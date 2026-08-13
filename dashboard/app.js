@@ -5,6 +5,7 @@ const state = {
   event: null,
   running: false,
   transactions: [],
+  activeSeatRows: [],
 };
 
 const scenarios = {
@@ -199,6 +200,7 @@ async function refreshEvents() {
 async function setScenario(name) {
   await post("/admin/scenario", { event: EVENT_NAME, seats: scenarios[name] });
   await refreshEvents();
+  state.activeSeatRows = state.event?.seats || [];
 }
 
 function setTxLink(elementId, tx, pendingText) {
@@ -230,7 +232,7 @@ function normalizeDemoResult(payload) {
     refund,
     offer,
     queue: payload.queue || null,
-    seatStatuses: payload.seat_statuses || payload.remainingSeats || state.event?.seats || [],
+    seatStatuses: payload.seat_statuses || payload.remainingSeats || state.activeSeatRows || state.event?.seats || [],
     fundTx: payload.fund_tx || settle.fund_tx,
     settleTx: payload.settle_tx || settle.settle_tx || refund?.refund_tx_hash || order?.settlement_tx_hash,
     reason: payload.reason || payload.refund_reason || refund?.reason || settle.verify_note || settle.gemini_reasoning,
@@ -241,11 +243,12 @@ function describeRuleFailure(rule, label, seatCount, seatRows) {
   if (!rule?.grade) return `${label} 조건에 좌석 등급이 지정되지 않았습니다.`;
   const seat = seatRows.find((row) => row.grade === rule.grade);
   const available = Number(seat?.available_count ?? seat?.count ?? 0);
+  const shortage = Math.max(seatCount - available, 0);
 
   if (!seat) return `${label} ${rule.grade}석은 현재 판매 목록에 없습니다.`;
-  if (available < seatCount) return `${label} ${rule.grade}석은 요청 수량 ${seatCount}매보다 재고 ${available}매가 적습니다.`;
+  if (available < seatCount) return `${label} ${rule.grade}석: 요청 ${seatCount}매, 현재 재고 ${available}매로 ${shortage}매 부족합니다.`;
   if (rule.max_price_krw && seat.price_krw > rule.max_price_krw) {
-    return `${label} ${rule.grade}석 가격 ${formatKrw(seat.price_krw)}이 최대 허용 금액 ${formatKrw(rule.max_price_krw)}을 초과합니다.`;
+    return `${label} ${rule.grade}석: 가격 ${formatKrw(seat.price_krw)}이 최대 허용 금액 ${formatKrw(rule.max_price_krw)}을 초과합니다.`;
   }
   return `${label} ${rule.grade}석은 검증 조건을 통과하지 못했습니다.`;
 }
@@ -358,7 +361,7 @@ function renderResult(rawPayload) {
         "대안 조건 정산 사유",
         [
           primaryFailure,
-          `대안 ${grade}석은 요청 수량 ${seatCount}매와 최대 허용 금액 ${formatKrw(conditions.fallback_rules[0]?.max_price_krw)} 조건을 충족했습니다.`,
+          `대안 ${grade}석: 요청 ${seatCount}매와 최대 허용 금액 ${formatKrw(conditions.fallback_rules[0]?.max_price_krw)} 조건을 충족했습니다.`,
         ],
         "대안 조건으로 정산을 확정했습니다."
       );

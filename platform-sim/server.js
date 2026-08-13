@@ -195,11 +195,12 @@ function explainNoOffer(eventState, conditions = {}) {
     }
 
     if (seat.available_count < seatCount) {
-      return `${label} ${rule.grade}석은 요청 수량 ${seatCount}매보다 재고 ${seat.available_count}매가 적습니다.`;
+      const shortage = seatCount - seat.available_count;
+      return `${label} ${rule.grade}석: 요청 ${seatCount}매, 현재 재고 ${seat.available_count}매로 ${shortage}매 부족합니다.`;
     }
 
     if (rule.max_price_krw && seat.price_krw > rule.max_price_krw) {
-      return `${label} ${rule.grade}석 가격 ${seat.price_krw}원이 최대 허용 금액 ${rule.max_price_krw}원을 초과합니다.`;
+      return `${label} ${rule.grade}석: 가격 ${seat.price_krw}원이 최대 허용 금액 ${rule.max_price_krw}원을 초과합니다.`;
     }
 
     return `${label} ${rule.grade}석은 조건을 만족하지 못했습니다.`;
