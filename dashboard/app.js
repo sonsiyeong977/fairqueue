@@ -348,7 +348,7 @@ function renderResult(rawPayload) {
     $("reasonPanel").innerHTML = renderReasonList(
       "환불 사유",
       reasons,
-      "primary/fallback 조건을 모두 만족하는 좌석이 없어 Anchor refund를 실행했습니다."
+      "조건을 만족하는 좌석이 없어 자동 환불로 전환했습니다."
     );
     $("settleLabel").textContent = "환불 완료 (REFUND)";
   } else {
@@ -360,7 +360,7 @@ function renderResult(rawPayload) {
           primaryFailure,
           `대안 ${grade}석은 요청 수량 ${seatCount}매와 최대 허용 금액 ${formatKrw(conditions.fallback_rules[0]?.max_price_krw)} 조건을 충족했습니다.`,
         ],
-        "따라서 Gemini 판단 이후 결정론적 검증을 통과했고, 판매자 정산 release를 실행했습니다."
+        "대안 조건으로 정산을 확정했습니다."
       );
     } else {
       $("reasonPanel").textContent = `primary 조건(${grade}석, ${formatKrw(conditions.primary.max_price_krw)} 이하)을 충족하여 판매자 정산을 완료했습니다.`;
@@ -386,7 +386,7 @@ async function runDemo(scenarioName) {
   try {
     const userId = `${$("userId").value}-${Date.now().toString(36)}`;
     const conditions = conditionsFromForm();
-    log(`${scenarioLabel(scenarioName)} 시나리오의 좌석 재고를 운영 서버에 반영했습니다.`);
+    log(`${scenarioLabel(scenarioName)} 조건에 맞춰 현재 좌석 재고를 동기화했습니다.`);
     await setScenario(scenarioName);
     renderSteps(2);
 
