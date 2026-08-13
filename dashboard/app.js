@@ -215,6 +215,7 @@ function setTxLink(elementId, tx, pendingText) {
 }
 
 function scenarioLabel(name) {
+  if (name === "custom") return "직접 입력";
   if (name === "refund") return "환불";
   if (name === "fallback") return "대안";
   return "성공";
@@ -389,8 +390,14 @@ async function runDemo(scenarioName) {
   try {
     const userId = `${$("userId").value}-${Date.now().toString(36)}`;
     const conditions = conditionsFromForm();
-    log(`${scenarioLabel(scenarioName)} 조건에 맞춰 현재 좌석 재고를 동기화했습니다.`);
-    await setScenario(scenarioName);
+    if (scenarioName === "custom") {
+      log("현재 남은 좌석 재고를 기준으로 사용자 조건을 처리합니다.");
+      await refreshEvents();
+      state.activeSeatRows = state.event?.seats || [];
+    } else {
+      log(`${scenarioLabel(scenarioName)} 조건에 맞춰 현재 좌석 재고를 동기화했습니다.`);
+      await setScenario(scenarioName);
+    }
     renderSteps(2);
 
     log("사용자 조건을 공식 대기열에 등록하고 예치 가능 상태를 생성했습니다.");
@@ -421,7 +428,7 @@ async function runDemo(scenarioName) {
 function bind() {
   $("bookingForm").addEventListener("submit", (event) => {
     event.preventDefault();
-    runDemo("success");
+    runDemo("custom");
   });
   $("successDemoBtn").addEventListener("click", () => runDemo("success"));
   $("fallbackDemoBtn").addEventListener("click", () => runDemo("fallback"));
