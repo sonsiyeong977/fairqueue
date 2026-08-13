@@ -166,6 +166,11 @@ h2 {
   box-shadow: 0 0 0 5px rgba(228, 74, 95, 0.12);
 }
 
+.signal.neutral {
+  background: var(--navy);
+  box-shadow: 0 0 0 5px rgba(11, 49, 104, 0.12);
+}
+
 .booking-grid {
   display: grid;
   grid-template-columns: minmax(520px, 1.3fr) minmax(390px, 0.9fr);
@@ -693,6 +698,123 @@ a {
   font-weight: 900;
 }
 
+.operator-view {
+  display: none;
+  margin-top: 24px;
+}
+
+.progress-view.visible + .operator-view {
+  display: block;
+}
+
+.operator-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: stretch;
+  margin-bottom: 16px;
+}
+
+.operator-header > div:first-child,
+.operator-program,
+.kpi-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.operator-header > div:first-child {
+  flex: 1;
+  padding: 22px 24px;
+}
+
+.operator-header p:last-child {
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.operator-program {
+  min-width: 260px;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 18px;
+  border-top: 3px solid var(--green);
+}
+
+.operator-program span,
+.kpi-card span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.operator-program strong {
+  color: var(--green-dark);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 15px;
+}
+
+.operator-kpis {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+}
+
+.kpi-card {
+  min-height: 116px;
+  display: grid;
+  align-content: space-between;
+  padding: 18px;
+  border-top: 3px solid var(--navy);
+}
+
+.kpi-card strong {
+  color: var(--ink);
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.operator-log-card {
+  margin-top: 16px;
+}
+
+.operator-table {
+  margin-top: 10px;
+}
+
+.operator-table th,
+.operator-table td {
+  white-space: nowrap;
+}
+
+.operator-table td:last-child {
+  max-width: 180px;
+}
+
+.decision-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.decision-pill.settle {
+  background: #e4f8ef;
+  color: var(--green-dark);
+}
+
+.decision-pill.refund {
+  background: #f4f6f8;
+  color: #5b6472;
+}
+
 .log-card {
   margin-top: 24px;
 }
@@ -733,8 +855,13 @@ a {
 
   .booking-grid,
   .detail-grid,
-  .result-grid {
+  .result-grid,
+  .operator-kpis {
     grid-template-columns: 1fr;
+  }
+
+  .operator-header {
+    flex-direction: column;
   }
 
   .poster-frame,

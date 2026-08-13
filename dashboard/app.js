@@ -4,6 +4,7 @@ const EVENT_NAME = "IU Concert";
 const state = {
   event: null,
   running: false,
+  transactions: [],
 };
 
 const scenarios = {
@@ -11,6 +12,11 @@ const scenarios = {
     { grade: "VIP", price_krw: 220000, count: 1 },
     { grade: "R", price_krw: 198000, count: 3 },
     { grade: "S", price_krw: 176000, count: 4 },
+  ],
+  fallback: [
+    { grade: "VIP", price_krw: 220000, count: 1 },
+    { grade: "R", price_krw: 198000, count: 0 },
+    { grade: "S", price_krw: 120000, count: 4 },
   ],
   refund: [
     { grade: "VIP", price_krw: 220000, count: 0 },
@@ -32,6 +38,10 @@ const $ = (id) => document.getElementById(id);
 
 function formatKrw(value) {
   return `${new Intl.NumberFormat("ko-KR").format(Number(value || 0))}원`;
+}
+
+function formatCount(value) {
+  return `${new Intl.NumberFormat("ko-KR").format(Number(value || 0))}건`;
 }
 
 function shortTx(tx) {
@@ -108,6 +118,7 @@ function log(message) {
 function setButtonsDisabled(disabled) {
   state.running = disabled;
   $("successDemoBtn").disabled = disabled;
+  $("fallbackDemoBtn").disabled = disabled;
   $("refundDemoBtn").disabled = disabled;
   document.querySelector(".primary-button").disabled = disabled;
 }
@@ -201,6 +212,12 @@ function setTxLink(elementId, tx, pendingText) {
   link.href = explorerTx(tx);
 }
 
+function scenarioLabel(name) {
+  if (name === "refund") return "환불";
+  if (name === "fallback") return "대안";
+  return "성공";
+}
+
 function normalizeDemoResult(payload) {
   const settle = payload.settle_result || payload.settlement || {};
   const decision = payload.final_decision || settle.final_decision || settle.decision || "UNKNOWN";
@@ -217,6 +234,61 @@ function normalizeDemoResult(payload) {
     settleTx: payload.settle_tx || settle.settle_tx || refund?.refund_tx_hash || order?.settlement_tx_hash,
     reason: payload.reason || payload.refund_reason || refund?.reason || settle.verify_note || settle.gemini_reasoning,
   };
+}
+
+function addOperatorTransaction(result, amount, grade, isRefund) {
+  const fee = isRefund ? 0 : Math.round(amount * 0.015);
+  state.transactions.unshift({
+    time: new Date().toLocaleTimeString("ko-KR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
+    decision: result.decision,
+    grade: isRefund ? "-" : `${grade}석`,
+    amount: isRefund ? 0 : amount,
+    refundAmount: isRefund ? amount : 0,
+    fee,
+    tx: result.settleTx,
+  });
+  renderOperatorView();
+}
+
+function renderOperatorView() {
+  const transactions = state.transactions;
+  const settled = transactions.filter((item) => !item.decision.includes("REFUND"));
+  const refunds = transactions.filter((item) => item.decision.includes("REFUND"));
+  const settledAmount = settled.reduce((sum, item) => sum + item.amount, 0);
+  const feeRevenue = settled.reduce((sum, item) => sum + item.fee, 0);
+
+  $("operatorProcessedCount").textContent = formatCount(transactions.length);
+  $("operatorTotalAmount").textContent = formatKrw(settledAmount);
+  $("operatorProtectedValue").textContent = formatKrw(settledAmount);
+  $("operatorFeeRevenue").textContent = formatKrw(feeRevenue);
+  $("operatorRefundCount").textContent = formatCount(refunds.length);
+  $("operatorMacroBlocked").textContent = "0건";
+
+  $("operatorLogRows").innerHTML = transactions.length
+    ? transactions
+        .map((item) => {
+          const isRefund = item.decision.includes("REFUND");
+          const txLabel = item.tx ? shortTx(item.tx) : "대기 중";
+          const txCell = item.tx
+            ? `<a href="${explorerTx(item.tx)}" target="_blank" rel="noreferrer">${txLabel}</a>`
+            : txLabel;
+          return `
+            <tr>
+              <td>${item.time}</td>
+              <td><span class="decision-pill ${isRefund ? "refund" : "settle"}">${item.decision}</span></td>
+              <td>${item.grade}</td>
+              <td>${isRefund ? "환불 처리" : formatKrw(item.amount)}</td>
+              <td>${isRefund ? "0원" : formatKrw(item.fee)}</td>
+              <td>${txCell}</td>
+            </tr>
+          `;
+        })
+        .join("")
+    : `<tr><td colspan="6">아직 처리된 거래가 없습니다.</td></tr>`;
 }
 
 function renderResult(rawPayload) {
@@ -258,18 +330,19 @@ function renderResult(rawPayload) {
   setTxLink("settleTx", result.settleTx, "settle_tx 대기 중");
   $("explorerMain").href = result.settleTx ? explorerTx(result.settleTx) : `https://explorer.solana.com/address/${PROGRAM_ID}?cluster=devnet`;
 
+  addOperatorTransaction(result, amount, grade, isRefund);
   log(isRefund ? "조건 불충족으로 Anchor refund 트랜잭션을 확인했습니다." : "조건 충족으로 Anchor release 트랜잭션을 확인했습니다.");
 }
 
 async function runDemo(scenarioName) {
   if (state.running) return;
   setButtonsDisabled(true);
-  renderProgressPending(`${scenarioName === "refund" ? "환불" : "성공"} 케이스를 실행하고 있습니다.`);
+  renderProgressPending(`${scenarioLabel(scenarioName)} 케이스를 실행하고 있습니다.`);
 
   try {
     const userId = `${$("userId").value}-${Date.now().toString(36)}`;
     const conditions = conditionsFromForm();
-    log(`${scenarioName === "refund" ? "환불" : "성공"} 케이스 재고를 설정합니다.`);
+    log(`${scenarioLabel(scenarioName)} 케이스 재고를 설정합니다.`);
     await setScenario(scenarioName);
     renderSteps(2);
 
@@ -304,6 +377,7 @@ function bind() {
     runDemo("success");
   });
   $("successDemoBtn").addEventListener("click", () => runDemo("success"));
+  $("fallbackDemoBtn").addEventListener("click", () => runDemo("fallback"));
   $("refundDemoBtn").addEventListener("click", () => runDemo("refund"));
   $("resetBtn").addEventListener("click", showBooking);
   $("clearLogBtn").addEventListener("click", () => {

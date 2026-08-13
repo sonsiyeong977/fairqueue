@@ -19,6 +19,10 @@
             <span class="signal success"></span>
             성공 케이스 실행
           </button>
+          <button class="ghost-button" id="fallbackDemoBtn" type="button">
+            <span class="signal neutral"></span>
+            대안 케이스 실행
+          </button>
           <button class="ghost-button" id="refundDemoBtn" type="button">
             <span class="signal danger"></span>
             환불 케이스 실행
@@ -179,6 +183,71 @@
               블록체인 Explorer에서 확인
             </a>
           </section>
+        </section>
+      </section>
+
+      <section class="operator-view" id="operatorView">
+        <div class="operator-header">
+          <div>
+            <p class="section-kicker">Operator View</p>
+            <h2>운영사 대시보드</h2>
+            <p>공식 대기열 이후 발생한 예치, 정산, 환불 결과를 운영 관점에서 집계합니다.</p>
+          </div>
+          <div class="operator-program">
+            <span>Anchor Program</span>
+            <strong>Verified · Devnet</strong>
+          </div>
+        </div>
+
+        <section class="operator-kpis">
+          <article class="kpi-card">
+            <span>총 처리 건수</span>
+            <strong id="operatorProcessedCount">0건</strong>
+          </article>
+          <article class="kpi-card">
+            <span>확정 거래액</span>
+            <strong id="operatorTotalAmount">0원</strong>
+          </article>
+          <article class="kpi-card">
+            <span>결제 실패 없이 확정된 매출</span>
+            <strong id="operatorProtectedValue">0원</strong>
+          </article>
+          <article class="kpi-card">
+            <span>FairQueue 수수료 수익</span>
+            <strong id="operatorFeeRevenue">0원</strong>
+          </article>
+          <article class="kpi-card">
+            <span>환불 처리 건수</span>
+            <strong id="operatorRefundCount">0건</strong>
+          </article>
+          <article class="kpi-card">
+            <span>매크로 의심 차단</span>
+            <strong id="operatorMacroBlocked">0건</strong>
+          </article>
+        </section>
+
+        <section class="card operator-log-card">
+          <div class="card-title compact">
+            <h2>최근 거래 로그</h2>
+            <span class="status-chip success">1.5% TAKE RATE</span>
+          </div>
+          <table class="operator-table">
+            <thead>
+              <tr>
+                <th>시각</th>
+                <th>판정</th>
+                <th>좌석</th>
+                <th>거래액</th>
+                <th>수수료</th>
+                <th>Tx Hash</th>
+              </tr>
+            </thead>
+            <tbody id="operatorLogRows">
+              <tr>
+                <td colspan="6">아직 처리된 거래가 없습니다.</td>
+              </tr>
+            </tbody>
+          </table>
         </section>
       </section>
 

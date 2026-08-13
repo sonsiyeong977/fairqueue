@@ -1,7 +1,7 @@
-require("dotenv").config({ path: "../.env" });
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, "..", ".env"), quiet: true });
 const fs = require("fs");
 const os = require("os");
-const path = require("path");
 const express = require("express");
 const anchor = require("@coral-xyz/anchor");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
@@ -10,7 +10,7 @@ const { Connection, Keypair, LAMPORTS_PER_SOL, SystemProgram, clusterApiUrl, Pub
 const app = express();
 app.use(express.json());
 
-const PORT = 4000;
+const PORT = Number(process.env.PORT || 4000);
 const CLUSTER = process.env.SOLANA_CLUSTER || "devnet";
 const RPC_URL = process.env.SOLANA_RPC_URL || clusterApiUrl(CLUSTER);
 
