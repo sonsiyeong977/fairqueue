@@ -761,9 +761,9 @@ async function runDemo(scenarioName) {
     renderSteps(3);
 
     log("공식 대기열 순번이 도달해 좌석 Offer 검증 단계로 전환했습니다.");
-    await animateWaitingAhead([21, 12, 6, 2, 0], 240);
+    await animateWaitingAhead([21, 12, 6, 2, 1], 260);
     await post("/queue/advance", { event: EVENT_NAME, count: queue.position || 1 });
-    $("waitingAhead").textContent = "0명";
+    $("waitingAhead").textContent = "1명";
     renderSteps(4);
 
     log("좌석 Offer를 조건과 대조하고 Anchor escrow 정산을 요청했습니다.");
