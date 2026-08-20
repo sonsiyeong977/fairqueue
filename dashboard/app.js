@@ -6,6 +6,7 @@ const state = {
   running: false,
   transactions: [],
   activeSeatRows: [],
+  activeView: "user",
 };
 
 const scenarios = {
@@ -27,12 +28,11 @@ const scenarios = {
 };
 
 const steps = [
-  "조건 입력 완료",
-  "온체인 예치",
-  "공식 대기열",
-  "좌석 Offer",
-  "Gemini+Verify",
-  "Release/Refund",
+  "STEP 1 조건 입력",
+  "STEP 2 Gemini 조건 해석",
+  "STEP 3 공식 대기열",
+  "STEP 4 Offer 검증",
+  "STEP 5 구매 완료",
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -68,6 +68,33 @@ function conditionsFromForm() {
   };
 }
 
+function renderParsedGrid() {
+  const conditions = conditionsFromForm();
+  const fallback = conditions.fallback_rules[0];
+  const primaryBudget = conditions.primary.max_price_krw * conditions.seat_count;
+  const fallbackBudget = fallback ? fallback.max_price_krw * conditions.seat_count : 0;
+
+  $("userUtterance").textContent = $("naturalPrompt").value;
+  $("parsedGrid").innerHTML = `
+    <div>
+      <span>좌석 우선순위</span>
+      <strong>${conditions.primary.grade}석${fallback ? ` → ${fallback.grade}석 fallback` : ""}</strong>
+    </div>
+    <div>
+      <span>수량</span>
+      <strong>${conditions.seat_count}매</strong>
+    </div>
+    <div>
+      <span>가격 상한</span>
+      <strong>${formatKrw(conditions.primary.max_price_krw)} / 장</strong>
+    </div>
+    <div>
+      <span>최대 예산</span>
+      <strong>${formatKrw(fallback ? Math.max(primaryBudget, fallbackBudget) : primaryBudget)}</strong>
+    </div>
+  `;
+}
+
 function renderConditionSummary() {
   const conditions = conditionsFromForm();
   const fallback = conditions.fallback_rules[0];
@@ -89,6 +116,54 @@ function renderConditionSummary() {
       <strong>조건 불충족 시 자동 환불</strong>
     </div>
   `;
+  renderParsedGrid();
+}
+
+function setFormValues({ prompt, primaryGrade, fallbackGrade, maxPrice, fallbackPrice, seatCount }) {
+  if (prompt) $("naturalPrompt").value = prompt;
+  if (primaryGrade !== undefined) $("primaryGrade").value = primaryGrade;
+  if (fallbackGrade !== undefined) $("fallbackGrade").value = fallbackGrade;
+  if (maxPrice !== undefined) $("maxPrice").value = maxPrice;
+  if (fallbackPrice !== undefined) $("fallbackPrice").value = fallbackPrice;
+  if (seatCount !== undefined) $("seatCount").value = seatCount;
+  renderConditionSummary();
+}
+
+function applyScenarioDefaults(name) {
+  if (name === "fallback") {
+    setFormValues({
+      prompt: "R석 12만원 이하, 2연석 우선. 없으면 S석까지 허용해줘.",
+      primaryGrade: "R",
+      fallbackGrade: "S",
+      maxPrice: 120000,
+      fallbackPrice: 120000,
+      seatCount: 2,
+    });
+    return;
+  }
+
+  if (name === "refund") {
+    setFormValues({
+      prompt: "R석 12만원 이하, 2연석 우선. 없으면 S석까지 허용해줘.",
+      primaryGrade: "R",
+      fallbackGrade: "S",
+      maxPrice: 120000,
+      fallbackPrice: 120000,
+      seatCount: 2,
+    });
+    return;
+  }
+
+  if (name === "success") {
+    setFormValues({
+      prompt: "R석 20만원 이하로 1매 예매해줘. 없으면 S석도 괜찮아.",
+      primaryGrade: "R",
+      fallbackGrade: "S",
+      maxPrice: 200000,
+      fallbackPrice: 180000,
+      seatCount: 1,
+    });
+  }
 }
 
 async function api(path, options = {}) {
@@ -126,13 +201,38 @@ function setButtonsDisabled(disabled) {
 
 function showProgress() {
   $("bookingView").classList.add("hidden");
+  $("progressView").classList.remove("hidden");
   $("progressView").classList.add("visible");
+  showUserView(false);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function showBooking() {
+  $("progressView").classList.remove("hidden");
   $("progressView").classList.remove("visible");
   $("bookingView").classList.remove("hidden");
+  showUserView(false);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function showUserView(scroll = true) {
+  state.activeView = "user";
+  $("bookingView").classList.toggle("hidden", $("progressView").classList.contains("visible"));
+  $("progressView").classList.remove("hidden");
+  $("operatorView").classList.remove("visible");
+  $("logCard")?.classList?.remove("hidden");
+  $("userViewBtn").classList.add("active");
+  $("operatorViewBtn").classList.remove("active");
+  if (scroll) window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function showOperatorView() {
+  state.activeView = "operator";
+  $("bookingView").classList.add("hidden");
+  $("progressView").classList.add("hidden");
+  $("operatorView").classList.add("visible");
+  $("userViewBtn").classList.remove("active");
+  $("operatorViewBtn").classList.add("active");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -144,6 +244,8 @@ function renderSteps(doneCount = 0, finalLabel = "Release/Refund") {
       return `<div class="step${done}"><span class="step-dot">${index < doneCount ? "✓" : index + 1}</span><span>${label}</span></div>`;
     })
     .join("");
+  const current = Math.min(Math.max(doneCount, 0), steps.length - 1);
+  $("currentStepKicker").textContent = doneCount >= steps.length ? finalLabel : steps[current];
 }
 
 function renderProgressPending(message) {
@@ -286,16 +388,18 @@ function addOperatorTransaction(result, amount, grade, quantity, isRefund) {
 function renderOperatorView() {
   const transactions = state.transactions;
   const settled = transactions.filter((item) => !item.decision.includes("REFUND"));
+  const primarySettled = transactions.filter((item) => item.decision === "SETTLE_PRIMARY");
+  const fallbackSettled = transactions.filter((item) => item.decision === "SETTLE_FALLBACK");
   const refunds = transactions.filter((item) => item.decision.includes("REFUND"));
   const settledAmount = settled.reduce((sum, item) => sum + item.amount, 0);
   const feeRevenue = settled.reduce((sum, item) => sum + item.fee, 0);
 
   $("operatorProcessedCount").textContent = formatCount(transactions.length);
-  $("operatorTotalAmount").textContent = formatKrw(settledAmount);
-  $("operatorProtectedValue").textContent = formatKrw(settledAmount);
-  $("operatorFeeRevenue").textContent = formatKrw(feeRevenue);
+  $("operatorPrimarySuccessCount").textContent = formatCount(primarySettled.length);
+  $("operatorFallbackSuccessCount").textContent = formatCount(fallbackSettled.length);
   $("operatorRefundCount").textContent = formatCount(refunds.length);
-  $("operatorMacroBlocked").textContent = "0건";
+  $("operatorTotalAmount").textContent = formatKrw(settledAmount);
+  $("operatorFeeRevenue").textContent = formatKrw(feeRevenue);
 
   $("operatorLogRows").innerHTML = transactions.length
     ? transactions
@@ -319,6 +423,25 @@ function renderOperatorView() {
         })
         .join("")
     : `<tr><td colspan="7">아직 처리된 거래가 없습니다.</td></tr>`;
+}
+
+async function resetDemoState() {
+  setButtonsDisabled(true);
+  try {
+    state.transactions = [];
+    state.activeSeatRows = [];
+    $("eventLog").innerHTML = "";
+    await setScenario("success");
+    renderOperatorView();
+    renderConditionSummary();
+    renderSteps(0);
+    showBooking();
+    log("데모 상태를 초기 재고와 빈 거래 로그로 재설정했습니다.");
+  } catch (error) {
+    log(`Demo Reset 실패: ${error.message}`);
+  } finally {
+    setButtonsDisabled(false);
+  }
 }
 
 function renderResult(rawPayload) {
@@ -389,6 +512,7 @@ function renderResult(rawPayload) {
 async function runDemo(scenarioName) {
   if (state.running) return;
   setButtonsDisabled(true);
+  if (scenarioName !== "custom") applyScenarioDefaults(scenarioName);
   renderProgressPending(`${scenarioLabel(scenarioName)} 케이스를 실행하고 있습니다.`);
 
   try {
@@ -437,12 +561,18 @@ function bind() {
   $("successDemoBtn").addEventListener("click", () => runDemo("success"));
   $("fallbackDemoBtn").addEventListener("click", () => runDemo("fallback"));
   $("refundDemoBtn").addEventListener("click", () => runDemo("refund"));
+  $("demoResetBtn").addEventListener("click", resetDemoState);
+  $("userViewBtn").addEventListener("click", () => {
+    if ($("progressView").classList.contains("visible")) showProgress();
+    else showBooking();
+  });
+  $("operatorViewBtn").addEventListener("click", showOperatorView);
   $("resetBtn").addEventListener("click", showBooking);
   $("clearLogBtn").addEventListener("click", () => {
     $("eventLog").innerHTML = "";
   });
 
-  ["primaryGrade", "fallbackGrade", "maxPrice", "fallbackPrice", "seatCount"].forEach((id) => {
+  ["primaryGrade", "fallbackGrade", "maxPrice", "fallbackPrice", "seatCount", "naturalPrompt"].forEach((id) => {
     $(id).addEventListener("input", renderConditionSummary);
   });
 }
@@ -450,4 +580,5 @@ function bind() {
 bind();
 renderConditionSummary();
 renderSteps(0);
+renderOperatorView();
 refreshEvents();

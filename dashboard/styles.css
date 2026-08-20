@@ -134,6 +134,12 @@ h2 {
   gap: 8px;
 }
 
+.ghost-button.active {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: white;
+}
+
 .ghost-button.small {
   min-height: 34px;
   font-size: 13px;
@@ -221,6 +227,69 @@ h2 {
 .reservation-panel {
   display: grid;
   gap: 22px;
+}
+
+.gemini-card {
+  border-top: 3px solid var(--navy);
+}
+
+.gemini-dialog {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.gemini-dialog article {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.gemini-dialog .gemini-line,
+.parsed-grid {
+  border-color: #cbdcf8;
+  background: #eef5ff;
+}
+
+.gemini-dialog span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--navy);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.gemini-dialog p {
+  color: #26364f;
+  line-height: 1.55;
+}
+
+.parsed-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #cbdcf8;
+  border-radius: 8px;
+}
+
+.parsed-grid div {
+  display: grid;
+  gap: 4px;
+}
+
+.parsed-grid span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.parsed-grid strong {
+  font-size: 14px;
 }
 
 .condition-card {
@@ -460,7 +529,7 @@ pre {
 
 .stepper {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 0;
   padding: 28px 32px;
 }
@@ -471,7 +540,7 @@ pre {
   justify-items: center;
   gap: 10px;
   text-align: center;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
 }
 
@@ -720,7 +789,7 @@ a {
   margin-top: 24px;
 }
 
-.progress-view.visible + .operator-view {
+.operator-view.visible {
   display: block;
 }
 

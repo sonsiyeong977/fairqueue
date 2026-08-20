@@ -15,6 +15,9 @@
           <p class="venue">KSPO DOME (올림픽체조경기장)</p>
         </div>
         <div class="header-actions">
+          <button class="ghost-button active" id="userViewBtn" type="button">사용자 화면</button>
+          <button class="ghost-button" id="operatorViewBtn" type="button">운영사 화면</button>
+          <button class="ghost-button" id="demoResetBtn" type="button">Demo Reset</button>
           <button class="ghost-button" id="successDemoBtn" type="button">
             <span class="signal success"></span>
             성공 케이스 실행
@@ -39,6 +42,32 @@
           </section>
 
           <aside class="reservation-panel">
+            <section class="card gemini-card">
+              <div class="card-title compact">
+                <div>
+                  <p class="section-kicker">STEP 1 · Natural Language</p>
+                  <h2>Gemini 조건 해석</h2>
+                </div>
+                <span class="status-chip success">AGREED & PARSED</span>
+              </div>
+              <label class="prompt-field">
+                <span>사용자 자연어 요청</span>
+                <textarea id="naturalPrompt">R석 12만원 이하, 2연석 우선. 없으면 S석까지 허용해줘.</textarea>
+              </label>
+              <div class="gemini-dialog">
+                <article>
+                  <span>USER</span>
+                  <p id="userUtterance">R석 12만원 이하, 2연석 우선. 없으면 S석까지 허용해줘.</p>
+                </article>
+                <article class="gemini-line">
+                  <span>GEMINI</span>
+                  <p>요청을 1순위 좌석, 대안 좌석, 가격 상한, 수량 조건으로 구조화했습니다.</p>
+                </article>
+              </div>
+              <div class="parsed-grid" id="parsedGrid"></div>
+              <p class="microcopy">Gemini는 조건 해석까지만 담당하고, 실제 결제 실행은 deterministic verification 이후에만 진행됩니다.</p>
+            </section>
+
             <section class="card condition-card">
               <p class="section-kicker">Delegated Conditions</p>
               <h2>예매 조건 작성</h2>
@@ -112,6 +141,7 @@
       <section class="progress-view" id="progressView">
         <div class="progress-header">
           <div>
+            <p class="section-kicker" id="currentStepKicker">STEP 0</p>
             <h2>예매 진행 현황</h2>
             <p>IU 2024 CONCERT [H.E.R] · KSPO DOME</p>
           </div>
@@ -205,24 +235,24 @@
             <strong id="operatorProcessedCount">0건</strong>
           </article>
           <article class="kpi-card">
+            <span>자동 구매 성공</span>
+            <strong id="operatorPrimarySuccessCount">0건</strong>
+          </article>
+          <article class="kpi-card">
+            <span>Fallback 구매 성공</span>
+            <strong id="operatorFallbackSuccessCount">0건</strong>
+          </article>
+          <article class="kpi-card">
+            <span>조건 불충족 환불</span>
+            <strong id="operatorRefundCount">0건</strong>
+          </article>
+          <article class="kpi-card">
             <span>확정 거래액</span>
             <strong id="operatorTotalAmount">0원</strong>
           </article>
           <article class="kpi-card">
-            <span>결제 실패 없이 확정된 매출</span>
-            <strong id="operatorProtectedValue">0원</strong>
-          </article>
-          <article class="kpi-card">
             <span>FairQueue 수수료 수익</span>
             <strong id="operatorFeeRevenue">0원</strong>
-          </article>
-          <article class="kpi-card">
-            <span>환불 처리 건수</span>
-            <strong id="operatorRefundCount">0건</strong>
-          </article>
-          <article class="kpi-card">
-            <span>매크로 의심 차단</span>
-            <strong id="operatorMacroBlocked">0건</strong>
           </article>
         </section>
 
