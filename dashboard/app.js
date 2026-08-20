@@ -68,6 +68,58 @@ function conditionsFromForm() {
   };
 }
 
+function priceToKrw(raw, unit) {
+  const value = Number(String(raw || "").replace(/,/g, ""));
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return unit === "만원" ? value * 10000 : value;
+}
+
+function extractPriceForGrade(text, grade) {
+  const patterns = [
+    new RegExp(`${grade}\\s*석?[^0-9]{0,12}(\\d[\\d,]*)\\s*(만원|원)`),
+    new RegExp(`(\\d[\\d,]*)\\s*(만원|원)[^가-힣A-Z0-9]{0,12}${grade}\\s*석?`),
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const raw = match[1];
+      const unit = match[2];
+      return priceToKrw(raw, unit);
+    }
+  }
+
+  return null;
+}
+
+function parseNaturalPrompt(text) {
+  const normalized = text.replace(/\s+/g, " ").trim().toUpperCase();
+  const fallbackSplit = normalized.split(/없으면|안되면|못 잡으면|대안|차선/);
+  const primaryPart = fallbackSplit[0] || normalized;
+  const fallbackPart = fallbackSplit.slice(1).join(" ") || "";
+  const grades = ["VIP", "R", "S"];
+  const primaryGrade = grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(primaryPart));
+  const fallbackGrade = grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(fallbackPart));
+  const countMatch = normalized.match(/(\d+)\s*(연석|매|장)/);
+  const seatCount = countMatch ? Number(countMatch[1]) : null;
+  const primaryPrice = primaryGrade ? extractPriceForGrade(normalized, primaryGrade) : null;
+  const fallbackPrice = fallbackGrade ? extractPriceForGrade(fallbackPart, fallbackGrade) || primaryPrice : null;
+
+  return { primaryGrade, fallbackGrade, primaryPrice, fallbackPrice, seatCount };
+}
+
+function applyNaturalPromptToForm() {
+  const parsed = parseNaturalPrompt($("naturalPrompt").value);
+
+  if (parsed.primaryGrade) $("primaryGrade").value = parsed.primaryGrade;
+  if (parsed.fallbackGrade) $("fallbackGrade").value = parsed.fallbackGrade;
+  if (parsed.primaryPrice) $("maxPrice").value = parsed.primaryPrice;
+  if (parsed.fallbackPrice) $("fallbackPrice").value = parsed.fallbackPrice;
+  if (parsed.seatCount) $("seatCount").value = Math.min(Math.max(parsed.seatCount, 1), 5);
+
+  renderConditionSummary();
+}
+
 function renderParsedGrid() {
   const conditions = conditionsFromForm();
   const fallback = conditions.fallback_rules[0];
@@ -84,7 +136,7 @@ function renderParsedGrid() {
       <strong>${conditions.seat_count}매</strong>
     </div>
     <div>
-      <span>가격 상한</span>
+      <span>1순위 가격 상한</span>
       <strong>${formatKrw(conditions.primary.max_price_krw)} / 장</strong>
     </div>
     <div>
@@ -104,7 +156,7 @@ function renderConditionSummary() {
     </div>
     <div>
       <span>최대 예산</span>
-      <strong>${formatKrw(conditions.primary.max_price_krw)}</strong>
+      <strong>${formatKrw(conditions.primary.max_price_krw * conditions.seat_count)}</strong>
     </div>
     <div>
       <span>수량</span>
@@ -571,9 +623,10 @@ function bind() {
     $("eventLog").innerHTML = "";
   });
 
-  ["primaryGrade", "fallbackGrade", "maxPrice", "fallbackPrice", "seatCount", "naturalPrompt"].forEach((id) => {
+  ["primaryGrade", "fallbackGrade", "maxPrice", "fallbackPrice", "seatCount"].forEach((id) => {
     $(id).addEventListener("input", renderConditionSummary);
   });
+  $("naturalPrompt").addEventListener("input", applyNaturalPromptToForm);
 }
 
 bind();

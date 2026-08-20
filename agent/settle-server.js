@@ -13,6 +13,7 @@ app.use(express.json());
 const PORT = Number(process.env.PORT || 4000);
 const CLUSTER = process.env.SOLANA_CLUSTER || "devnet";
 const RPC_URL = process.env.SOLANA_RPC_URL || clusterApiUrl(CLUSTER);
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const connection = new Connection(RPC_URL, "confirmed");
@@ -144,7 +145,7 @@ async function refundEscrow(orderId, userPubkey) {
 
 // ── Gemini: 제안된 좌석이 유저 조건에 맞는지 1차 판단 ──────────────────────────────
 async function decideOffer(userConditions, offeredSeat) {
-  const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
   const prompt = `
 너는 티켓팅 에이전트의 판단 로직이다.
 유저의 1차 희망 조건(primary)과 대안 규칙(fallback_rules), 그리고 플랫폼이 실제로 제안한 좌석(offeredSeat)을 비교해서 결정해라.
@@ -172,6 +173,23 @@ ${JSON.stringify(offeredSeat, null, 2)}
 }
 
 // ── 결정론적 검증 레이어 ──────────────────────────────
+function deterministicDecisionOnly(userConditions, offeredSeat) {
+  if (!offeredSeat) return "REFUND";
+
+  const { primary, fallback_rules = [] } = userConditions;
+  const matchesPrimary =
+    offeredSeat.grade === primary.grade &&
+    offeredSeat.price_krw <= primary.max_price_krw;
+
+  if (matchesPrimary) return "SETTLE_PRIMARY";
+
+  const matchesFallback = fallback_rules.some(
+    (rule) => offeredSeat.grade === rule.grade && offeredSeat.price_krw <= rule.max_price_krw
+  );
+
+  return matchesFallback ? "SETTLE_FALLBACK" : "REFUND";
+}
+
 function verifyDecisionDeterministically(userConditions, offeredSeat, geminiDecision) {
   if (!offeredSeat) {
     return {
@@ -226,7 +244,17 @@ app.post("/settle", requireApiKey, async (req, res) => {
     if (!offered_seat) {
       geminiDecision = { decision: "REFUND", reasoning: "플랫폼이 제안한 좌석이 없음 (매진)" };
     } else {
-      geminiDecision = await decideOffer(user_conditions, offered_seat);
+      try {
+        geminiDecision = await decideOffer(user_conditions, offered_seat);
+      } catch (geminiError) {
+        const fallbackDecision = deterministicDecisionOnly(user_conditions, offered_seat);
+        console.warn(`   Gemini 호출 실패, 결정론적 검증 레이어로 계속 진행: ${geminiError.message}`);
+        geminiDecision = {
+          decision: fallbackDecision,
+          reasoning: `Gemini API 응답 지연/오류로 결정론적 검증 레이어가 ${fallbackDecision} 판단을 수행함`,
+          gemini_error: geminiError.message,
+        };
+      }
     }
     console.log("   Gemini 판단:", geminiDecision);
 
