@@ -1,0 +1,11 @@
+.git
+.env
+node_modules
+npm-debug.log
+
+anchor-escrow/.anchor
+anchor-escrow/target
+anchor-escrow/node_modules
+anchor-escrow/test-ledger
+
+**/.DS_Store
