@@ -1,6 +1,7 @@
 ﻿const express = require("express");
 
 const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, "..", ".env"), quiet: true });
 
 const app = express();
 app.use(express.json());
@@ -182,26 +183,27 @@ function explainNoOffer(eventState, conditions = {}) {
   const availableRows = publicSeatRows(eventState);
 
   if (rules.length === 0) {
-    return "援щℓ 議곌굔??鍮꾩뼱 ?덇퀬, ?쒖븞 媛?ν븳 醫뚯꽍???놁뒿?덈떎.";
+    return "구매 조건이 비어 있고, 제안 가능한 좌석이 없습니다.";
   }
 
   const details = rules.map((rule, index) => {
-    const label = index === 0 ? "1?쒖쐞" : `???${index}`;
+    const label = index === 0 ? "1순위" : `대안 ${index}`;
     const seat = availableRows.find((row) => row.grade === rule.grade);
 
     if (!seat) {
-      return `${label} ${rule.grade}?앹? ?먮ℓ 紐⑸줉???놁뒿?덈떎.`;
+      return `${label} ${rule.grade}석은 판매 목록에 없습니다.`;
     }
 
     if (seat.available_count < seatCount) {
-      return `${label} ${rule.grade}?앹? ?붿껌 ?섎웾 ${seatCount}留ㅻ낫???ш퀬 ${seat.available_count}留ㅺ? ?곸뒿?덈떎.`;
+      const shortage = seatCount - seat.available_count;
+      return `${label} ${rule.grade}석: 요청 ${seatCount}매, 현재 재고 ${seat.available_count}매로 ${shortage}매 부족합니다.`;
     }
 
     if (rule.max_price_krw && seat.price_krw > rule.max_price_krw) {
-      return `${label} ${rule.grade}??媛寃?${seat.price_krw}?먯씠 理쒕? ?덉슜 湲덉븸 ${rule.max_price_krw}?먯쓣 珥덇낵?⑸땲??`;
+      return `${label} ${rule.grade}석: 가격 ${seat.price_krw}원이 최대 허용 금액 ${rule.max_price_krw}원을 초과합니다.`;
     }
 
-    return `${label} ${rule.grade}??議곌굔??留뚯”?섏? 紐삵뻽?듬땲??`;
+    return `${label} ${rule.grade}석은 조건을 만족하지 못했습니다.`;
   });
 
   return details.join(" ");

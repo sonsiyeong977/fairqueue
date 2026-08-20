@@ -199,17 +199,11 @@ SETTLE_API_KEY=fairqueue-demo-key
 
 **터미널 1 — 정산 API 서버**
 ```bash
-set -a
-source .env
-set +a
 npm run settle
 ```
 
 **터미널 2 — 플랫폼 시뮬레이터 + 대시보드**
 ```bash
-set -a
-source .env
-set +a
 npm run platform
 ```
 
@@ -291,4 +285,3 @@ MIT
 **Built with 💜for Google Cloud x Solana AI Agentic Hackathon 2026💜**
 
 </div>
-

@@ -15,9 +15,16 @@
           <p class="venue">KSPO DOME (올림픽체조경기장)</p>
         </div>
         <div class="header-actions">
+          <button class="ghost-button active" id="userViewBtn" type="button">사용자 화면</button>
+          <button class="ghost-button" id="operatorViewBtn" type="button">운영사 화면</button>
+          <button class="ghost-button" id="demoResetBtn" type="button">Demo Reset</button>
           <button class="ghost-button" id="successDemoBtn" type="button">
             <span class="signal success"></span>
             성공 케이스 실행
+          </button>
+          <button class="ghost-button" id="fallbackDemoBtn" type="button">
+            <span class="signal neutral"></span>
+            대안 케이스 실행
           </button>
           <button class="ghost-button" id="refundDemoBtn" type="button">
             <span class="signal danger"></span>
@@ -35,6 +42,32 @@
           </section>
 
           <aside class="reservation-panel">
+            <section class="card gemini-card">
+              <div class="card-title compact">
+                <div>
+                  <p class="section-kicker">STEP 1 · Natural Language</p>
+                  <h2>Gemini 조건 해석</h2>
+                </div>
+                <span class="status-chip success">AGREED & PARSED</span>
+              </div>
+              <label class="prompt-field">
+                <span>사용자 자연어 요청</span>
+                <textarea id="naturalPrompt">R석 12만원 이하, 2연석 우선. 없으면 S석까지 허용해줘.</textarea>
+              </label>
+              <div class="gemini-dialog">
+                <article>
+                  <span>USER</span>
+                  <p id="userUtterance">R석 12만원 이하, 2연석 우선. 없으면 S석까지 허용해줘.</p>
+                </article>
+                <article class="gemini-line">
+                  <span>GEMINI</span>
+                  <p>요청을 1순위 좌석, 대안 좌석, 가격 상한, 수량 조건으로 구조화했습니다.</p>
+                </article>
+              </div>
+              <div class="parsed-grid" id="parsedGrid"></div>
+              <p class="microcopy">Gemini는 조건 해석까지만 담당하고, 실제 결제 실행은 deterministic verification 이후에만 진행됩니다.</p>
+            </section>
+
             <section class="card condition-card">
               <p class="section-kicker">Delegated Conditions</p>
               <h2>예매 조건 작성</h2>
@@ -56,9 +89,9 @@
                   <label>
                     <span>대안 좌석</span>
                     <select id="fallbackGrade">
-                      <option value="S" selected>S석</option>
-                      <option value="R">R석</option>
                       <option value="VIP">VIP석</option>
+                      <option value="R">R석</option>
+                      <option value="S" selected>S석</option>
                       <option value="">없음</option>
                     </select>
                   </label>
@@ -76,14 +109,14 @@
                   </label>
                   <label>
                     <span>수량</span>
-                    <input id="seatCount" type="number" min="1" max="4" value="1" />
+                    <input id="seatCount" type="number" min="1" max="5" value="1" />
                   </label>
                 </div>
 
                 <div class="condition-summary" id="conditionSummary"></div>
 
                 <button class="primary-button" type="submit">대기열 참가 및 결제 예치</button>
-                <p class="microcopy">공식 대기열 순서 준수 · Anchor PDA Escrow 예치 · 조건 불충족 시 자동 환불</p>
+                <p class="microcopy">공식 대기열 순서 기반 · 조건 충족 시 자동 정산 · 불충족 시 자동 환불</p>
               </form>
             </section>
           </aside>
@@ -108,6 +141,7 @@
       <section class="progress-view" id="progressView">
         <div class="progress-header">
           <div>
+            <p class="section-kicker" id="currentStepKicker">STEP 0</p>
             <h2>예매 진행 현황</h2>
             <p>IU 2024 CONCERT [H.E.R] · KSPO DOME</p>
           </div>
@@ -182,9 +216,75 @@
         </section>
       </section>
 
+      <section class="operator-view" id="operatorView">
+        <div class="operator-header">
+          <div>
+            <p class="section-kicker">Operator View</p>
+            <h2>운영사 대시보드</h2>
+            <p>공식 대기열 이후 발생한 예치, 정산, 환불 결과를 운영 관점에서 집계합니다.</p>
+          </div>
+          <div class="operator-program">
+            <span>Anchor Program</span>
+            <strong>Verified · Devnet</strong>
+          </div>
+        </div>
+
+        <section class="operator-kpis">
+          <article class="kpi-card">
+            <span>총 처리 건수</span>
+            <strong id="operatorProcessedCount">0건</strong>
+          </article>
+          <article class="kpi-card">
+            <span>자동 구매 성공</span>
+            <strong id="operatorPrimarySuccessCount">0건</strong>
+          </article>
+          <article class="kpi-card">
+            <span>Fallback 구매 성공</span>
+            <strong id="operatorFallbackSuccessCount">0건</strong>
+          </article>
+          <article class="kpi-card">
+            <span>조건 불충족 환불</span>
+            <strong id="operatorRefundCount">0건</strong>
+          </article>
+          <article class="kpi-card">
+            <span>확정 거래액</span>
+            <strong id="operatorTotalAmount">0원</strong>
+          </article>
+          <article class="kpi-card">
+            <span>FairQueue 수수료 수익</span>
+            <strong id="operatorFeeRevenue">0원</strong>
+          </article>
+        </section>
+
+        <section class="card operator-log-card">
+          <div class="card-title compact">
+            <h2>최근 거래 로그</h2>
+            <span class="status-chip success">1.5% TAKE RATE</span>
+          </div>
+          <table class="operator-table">
+            <thead>
+              <tr>
+                <th>시각</th>
+                <th>판정</th>
+                <th>좌석</th>
+                <th>수량</th>
+                <th>거래액</th>
+                <th>수수료</th>
+                <th>Tx Hash</th>
+              </tr>
+            </thead>
+            <tbody id="operatorLogRows">
+              <tr>
+                <td colspan="7">아직 처리된 거래가 없습니다.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </section>
+
       <section class="card log-card">
         <div class="card-title compact">
-          <h2>데모 로그</h2>
+          <h2>실시간 처리 로그</h2>
           <button class="ghost-button small" id="clearLogBtn" type="button">지우기</button>
         </div>
         <ol id="eventLog"></ol>

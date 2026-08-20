@@ -134,6 +134,12 @@ h2 {
   gap: 8px;
 }
 
+.ghost-button.active {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: white;
+}
+
 .ghost-button.small {
   min-height: 34px;
   font-size: 13px;
@@ -164,6 +170,11 @@ h2 {
 .signal.danger {
   background: #e44a5f;
   box-shadow: 0 0 0 5px rgba(228, 74, 95, 0.12);
+}
+
+.signal.neutral {
+  background: var(--navy);
+  box-shadow: 0 0 0 5px rgba(11, 49, 104, 0.12);
 }
 
 .booking-grid {
@@ -216,6 +227,69 @@ h2 {
 .reservation-panel {
   display: grid;
   gap: 22px;
+}
+
+.gemini-card {
+  border-top: 3px solid var(--navy);
+}
+
+.gemini-dialog {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.gemini-dialog article {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.gemini-dialog .gemini-line,
+.parsed-grid {
+  border-color: #cbdcf8;
+  background: #eef5ff;
+}
+
+.gemini-dialog span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--navy);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.gemini-dialog p {
+  color: #26364f;
+  line-height: 1.55;
+}
+
+.parsed-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #cbdcf8;
+  border-radius: 8px;
+}
+
+.parsed-grid div {
+  display: grid;
+  gap: 4px;
+}
+
+.parsed-grid span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.parsed-grid strong {
+  font-size: 14px;
 }
 
 .condition-card {
@@ -455,7 +529,7 @@ pre {
 
 .stepper {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 0;
   padding: 28px 32px;
 }
@@ -466,7 +540,7 @@ pre {
   justify-items: center;
   gap: 10px;
   text-align: center;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
 }
 
@@ -610,6 +684,23 @@ pre {
   line-height: 1.65;
 }
 
+.reason-panel strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--ink);
+}
+
+.reason-panel ul {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding-left: 18px;
+}
+
+.reason-panel li {
+  padding-left: 2px;
+}
+
 .reason-panel.success {
   border-color: #b8ead3;
   background: #eafbf3;
@@ -693,6 +784,123 @@ a {
   font-weight: 900;
 }
 
+.operator-view {
+  display: none;
+  margin-top: 24px;
+}
+
+.operator-view.visible {
+  display: block;
+}
+
+.operator-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: stretch;
+  margin-bottom: 16px;
+}
+
+.operator-header > div:first-child,
+.operator-program,
+.kpi-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.operator-header > div:first-child {
+  flex: 1;
+  padding: 22px 24px;
+}
+
+.operator-header p:last-child {
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.operator-program {
+  min-width: 260px;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 18px;
+  border-top: 3px solid var(--green);
+}
+
+.operator-program span,
+.kpi-card span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.operator-program strong {
+  color: var(--green-dark);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 15px;
+}
+
+.operator-kpis {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+}
+
+.kpi-card {
+  min-height: 116px;
+  display: grid;
+  align-content: space-between;
+  padding: 18px;
+  border-top: 3px solid var(--navy);
+}
+
+.kpi-card strong {
+  color: var(--ink);
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.operator-log-card {
+  margin-top: 16px;
+}
+
+.operator-table {
+  margin-top: 10px;
+}
+
+.operator-table th,
+.operator-table td {
+  white-space: nowrap;
+}
+
+.operator-table td:last-child {
+  max-width: 180px;
+}
+
+.decision-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.decision-pill.settle {
+  background: #e4f8ef;
+  color: var(--green-dark);
+}
+
+.decision-pill.refund {
+  background: #f4f6f8;
+  color: #5b6472;
+}
+
 .log-card {
   margin-top: 24px;
 }
@@ -733,8 +941,13 @@ a {
 
   .booking-grid,
   .detail-grid,
-  .result-grid {
+  .result-grid,
+  .operator-kpis {
     grid-template-columns: 1fr;
+  }
+
+  .operator-header {
+    flex-direction: column;
   }
 
   .poster-frame,
