@@ -114,9 +114,9 @@ function extractFallbackBudget(text) {
   if (!fallbackPart) return null;
 
   const patterns = [
-    /(?:대신|다만)?[^0-9]{0,16}(?:대안|R석|S석|VIP석)[^0-9]{0,24}(?:예산|최대|상한)[^0-9]{0,12}(\d[\d,]*)\s*(만원|원)/,
-    /(?:대신|다만)?[^0-9]{0,16}(?:대안|R석|S석|VIP석)[^0-9]{0,24}(\d[\d,]*)\s*(만원|원)/,
-    /(\d[\d,]*)\s*(만원|원)[^가-힣0-9]{0,20}(?:대안|R석|S석|VIP석)/,
+    /(?:대안\s*좌석|R석|S석|VIP석)[^.!?。]{0,30}(?:경우|때)[^0-9]{0,16}(\d[\d,]*)\s*(만원|원)/,
+    /(?:대안\s*좌석|R석|S석|VIP석)[^.!?。]{0,30}(?:예산|최대|상한)[^0-9]{0,16}(\d[\d,]*)\s*(만원|원)/,
+    /(?:대신|다만)[^.!?。]{0,30}(\d[\d,]*)\s*(만원|원)/,
   ];
 
   for (const pattern of patterns) {
@@ -190,6 +190,10 @@ function applyParsedCondition(parsed, source = "gemini") {
 }
 
 async function parseConditionWithGemini(text, requestSeq) {
+  if (!text) {
+    throw new Error("예매 조건을 먼저 입력해 주세요.");
+  }
+
   $("parsingStatus").textContent = "해석 중";
   $("parsingStatus").className = "status-chip warning";
 
@@ -203,7 +207,7 @@ async function parseConditionWithGemini(text, requestSeq) {
   }
 }
 
-function scheduleNaturalPromptParsing() {
+async function handleParseConditionClick() {
   const text = $("naturalPrompt").value.trim();
   state.parseRequestSeq += 1;
   const requestSeq = state.parseRequestSeq;
@@ -211,16 +215,17 @@ function scheduleNaturalPromptParsing() {
 
   if (!text) {
     applyParsedCondition({}, "fallback");
+    log("예매 조건을 먼저 입력해 주세요.");
     return;
   }
 
   applyParsedCondition(parseNaturalPrompt(text), "pending");
-  $("parsingStatus").textContent = "해석 중";
-  $("parsingStatus").className = "status-chip warning";
-
-  state.parseTimer = setTimeout(() => {
-    parseConditionWithGemini(text, requestSeq);
-  }, 650);
+  $("parseConditionBtn").disabled = true;
+  try {
+    await parseConditionWithGemini(text, requestSeq);
+  } finally {
+    $("parseConditionBtn").disabled = false;
+  }
 }
 
 function renderParsedGrid() {
@@ -764,7 +769,14 @@ function bind() {
   ["primaryGrade", "fallbackGrade", "maxPrice", "fallbackPrice", "seatCount"].forEach((id) => {
     $(id).addEventListener("input", renderConditionSummary);
   });
-  $("naturalPrompt").addEventListener("input", scheduleNaturalPromptParsing);
+  $("parseConditionBtn").addEventListener("click", handleParseConditionClick);
+  $("naturalPrompt").addEventListener("input", () => {
+    state.parseRequestSeq += 1;
+    clearTimeout(state.parseTimer);
+    const text = $("naturalPrompt").value.trim();
+    if (!text) applyParsedCondition({}, "fallback");
+    else applyParsedCondition(parseNaturalPrompt(text), "pending");
+  });
 }
 
 bind();

@@ -118,7 +118,8 @@ h2 {
 }
 
 .ghost-button,
-.primary-button {
+.primary-button,
+.secondary-button {
   min-height: 40px;
   border-radius: 8px;
   padding: 0 14px;
@@ -153,6 +154,16 @@ h2 {
   background: var(--red);
   color: white;
   font-size: 17px;
+}
+
+.secondary-button {
+  width: 100%;
+  min-height: 46px;
+  margin-top: 10px;
+  border-color: var(--navy);
+  background: var(--paper);
+  color: var(--navy);
+  font-weight: 900;
 }
 
 .signal {

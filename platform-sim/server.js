@@ -86,9 +86,9 @@ function extractFallbackBudget(text) {
   if (!fallbackPart) return null;
 
   const patterns = [
-    /(?:대신|다만)?[^0-9]{0,16}(?:대안|R석|S석|VIP석)[^0-9]{0,24}(?:예산|최대|상한)[^0-9]{0,12}(\d[\d,]*)\s*(만원|원)/,
-    /(?:대신|다만)?[^0-9]{0,16}(?:대안|R석|S석|VIP석)[^0-9]{0,24}(\d[\d,]*)\s*(만원|원)/,
-    /(\d[\d,]*)\s*(만원|원)[^가-힣0-9]{0,20}(?:대안|R석|S석|VIP석)/,
+    /(?:대안\s*좌석|R석|S석|VIP석)[^.!?。]{0,30}(?:경우|때)[^0-9]{0,16}(\d[\d,]*)\s*(만원|원)/,
+    /(?:대안\s*좌석|R석|S석|VIP석)[^.!?。]{0,30}(?:예산|최대|상한)[^0-9]{0,16}(\d[\d,]*)\s*(만원|원)/,
+    /(?:대신|다만)[^.!?。]{0,30}(\d[\d,]*)\s*(만원|원)/,
   ];
 
   for (const pattern of patterns) {
@@ -534,6 +534,10 @@ app.post("/parse-condition", async (req, res) => {
 가격은 원화 숫자만 써라.
 "40만원까지 예산", "총 40만원"처럼 총예산 표현이면 seat_count로 나눈 1장당 최대 가격을 primary.max_price_krw에 넣어라.
 대안 좌석이 있으면 fallback_rules[0]에 넣어라.
+대안 좌석의 예산이 따로 있으면 fallback_rules[0].max_price_krw에는 대안 총예산을 seat_count로 나눈 1장당 최대 가격을 넣어라.
+예: "VIP 5연석, 총 130만원. R석은 100만원까지만"이면 primary.max_price_krw=260000, fallback_rules[0].max_price_krw=200000.
+사용자가 "정상가", "좌석 가격"을 말하지 않았다면 공연장 정상가를 예산으로 추정하지 마라.
+사용자 요청에 명시된 예산이 좌석 실제 가격보다 우선한다.
 "각각 한 자리씩", "따로 잡아도 됨" 표현은 allow_split_seats=true로 둔다.
 
 출력은 아래 JSON 형식으로만 해라. 설명이나 markdown은 쓰지 마라.
