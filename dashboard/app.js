@@ -153,7 +153,7 @@ function parseNaturalPrompt(text) {
   const fallbackPerSeatBudget = fallbackBudget && seatCount ? Math.floor(fallbackBudget / seatCount) : fallbackBudget;
   const primaryPrice = primaryGrade ? extractPriceForGrade(normalized, primaryGrade) || perSeatBudget : perSeatBudget;
   const fallbackPrice = fallbackGrade
-    ? extractPriceForGrade(fallbackPart, fallbackGrade) || fallbackPerSeatBudget || primaryPrice
+    ? fallbackPerSeatBudget || extractPriceForGrade(fallbackPart, fallbackGrade) || primaryPrice
     : null;
 
   return { primaryGrade, fallbackGrade, primaryPrice, fallbackPrice, seatCount };
@@ -210,9 +210,6 @@ async function parseConditionWithGemini(text, requestSeq) {
   if (!text) {
     throw new Error("예매 조건을 먼저 입력해 주세요.");
   }
-
-  $("parsingStatus").textContent = "해석 중";
-  $("parsingStatus").className = "status-chip warning";
 
   try {
     const payload = await post("/parse-condition", { text });
@@ -484,7 +481,7 @@ function sleep(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function animateWaitingAhead(values, delayMs = 280) {
+async function animateWaitingAhead(values, delayMs = 420) {
   for (const value of values) {
     if (!state.running) return;
     $("waitingAhead").textContent = `${value}명`;
@@ -757,11 +754,11 @@ async function runDemo(scenarioName) {
 
     log("사용자 조건을 공식 대기열에 등록하고 예치 가능 상태를 생성했습니다.");
     const queue = await post("/queue/join", { event: EVENT_NAME, user_id: userId, conditions });
-    await animateWaitingAhead([96, 74, 51, 33]);
+    await animateWaitingAhead([112, 96, 81, 67, 54, 42], 360);
     renderSteps(3);
 
     log("공식 대기열 순번이 도달해 좌석 Offer 검증 단계로 전환했습니다.");
-    await animateWaitingAhead([21, 12, 6, 2, 1], 260);
+    await animateWaitingAhead([31, 23, 16, 10, 6, 3, 1], 360);
     await post("/queue/advance", { event: EVENT_NAME, count: queue.position || 1 });
     $("waitingAhead").textContent = "1명";
     renderSteps(4);

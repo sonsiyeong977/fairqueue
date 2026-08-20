@@ -126,7 +126,7 @@ function fallbackParseCondition(text) {
   const fallbackPerSeatBudget = fallbackBudget && seatCount ? Math.floor(fallbackBudget / seatCount) : fallbackBudget;
   const primaryPrice = primaryGrade ? extractPriceForGrade(normalized, primaryGrade) || perSeatBudget : perSeatBudget;
   const fallbackPrice = fallbackGrade
-    ? extractPriceForGrade(fallbackPart, fallbackGrade) || fallbackPerSeatBudget || primaryPrice
+    ? fallbackPerSeatBudget || extractPriceForGrade(fallbackPart, fallbackGrade) || primaryPrice
     : null;
 
   return {
