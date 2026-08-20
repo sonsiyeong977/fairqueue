@@ -1,5 +1,9 @@
 <div align="center">
 
+<p align="center">
+<img src="docs/images/mainboard.png" alt="메인화면" width="120%">
+</p>
+
 # 🎟️ FairQueue
 
 ### 결제 실패 없는 공식 티켓팅 보증 레이어
