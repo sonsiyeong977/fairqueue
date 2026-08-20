@@ -82,7 +82,7 @@ function requireApiKey(req, res, next) {
 
 // ── 유틸 ──────────────────────────────
 function krwToSol(krw) {
-  return Number((krw / 10000000).toFixed(4)) || 0.01;
+  return Number((krw / 10000000000).toFixed(6)) || 0.0001;
 }
 
 async function fundEscrow(amountSol, sellerPubkey = sellerWallet.publicKey) {
