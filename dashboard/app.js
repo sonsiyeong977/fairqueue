@@ -109,14 +109,25 @@ function extractTotalBudget(text) {
   return null;
 }
 
+function gradeMentions(text) {
+  return [...text.matchAll(/\b(VIP|R|S)\s*석?/g)].map((match) => match[1]);
+}
+
+function fallbackTextPart(text) {
+  const parts = text.split(/없으면|안되면|안 되면|못잡으면|못 잡으면|불가능하면|대안|차선/);
+  return parts.slice(1).join(" ");
+}
+
 function parseNaturalPrompt(text) {
   const normalized = text.replace(/\s+/g, " ").trim().toUpperCase();
-  const fallbackSplit = normalized.split(/없으면|안되면|안 되면|못 잡으면|대안|차선/);
-  const primaryPart = fallbackSplit[0] || normalized;
-  const fallbackPart = fallbackSplit.slice(1).join(" ") || "";
+  const fallbackPart = fallbackTextPart(normalized);
+  const primaryPart = fallbackPart ? normalized.slice(0, normalized.indexOf(fallbackPart)).trim() : normalized;
   const grades = ["VIP", "R", "S"];
-  const primaryGrade = grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(primaryPart));
-  const fallbackGrade = grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(fallbackPart));
+  const mentions = gradeMentions(normalized);
+  const primaryGrade = grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(primaryPart)) || mentions[0];
+  const fallbackGrade =
+    grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(fallbackPart)) ||
+    mentions.find((grade) => grade !== primaryGrade);
   const countMatch = normalized.match(/(\d+)\s*(연석|연속|매|장)/);
   const seatCount = countMatch ? Number(countMatch[1]) : null;
   const totalBudget = extractTotalBudget(normalized);
@@ -134,18 +145,24 @@ function applyNaturalPromptToForm() {
 function applyParsedCondition(parsed, source = "gemini") {
   const primary = parsed.primary || {};
   const fallback = Array.isArray(parsed.fallback_rules) ? parsed.fallback_rules[0] : null;
+  const localParsed = parseNaturalPrompt($("naturalPrompt").value);
+  const primaryGrade = primary.grade || parsed.primaryGrade || localParsed.primaryGrade || "";
+  const fallbackGrade = fallback?.grade || parsed.fallbackGrade || localParsed.fallbackGrade || "";
+  const primaryPrice = primary.max_price_krw || parsed.primaryPrice || localParsed.primaryPrice || "";
+  const fallbackPrice = fallback?.max_price_krw || parsed.fallbackPrice || localParsed.fallbackPrice || primaryPrice || "";
+  const seatCount = parsed.seat_count || parsed.seatCount || localParsed.seatCount || "";
 
-  $("primaryGrade").value = primary.grade || parsed.primaryGrade || "";
-  $("fallbackGrade").value = fallback?.grade || parsed.fallbackGrade || "";
-  $("maxPrice").value = primary.max_price_krw || parsed.primaryPrice || "";
-  $("fallbackPrice").value = fallback?.max_price_krw || parsed.fallbackPrice || "";
-  $("seatCount").value = parsed.seat_count || parsed.seatCount ? Math.min(Math.max(Number(parsed.seat_count || parsed.seatCount), 1), 5) : "";
+  $("primaryGrade").value = primaryGrade;
+  $("fallbackGrade").value = fallbackGrade;
+  $("maxPrice").value = primaryPrice;
+  $("fallbackPrice").value = fallbackGrade ? fallbackPrice : "";
+  $("seatCount").value = seatCount ? Math.min(Math.max(Number(seatCount), 1), 5) : "";
   $("geminiMessage").textContent =
     source === "gemini"
       ? "Gemini가 자연어 요청을 좌석 우선순위, 가격 상한, 수량 조건으로 구조화했습니다."
       : source === "pending"
         ? "Gemini가 요청을 해석하고 있습니다."
-        : "Gemini 응답 지연으로 기본 해석 엔진이 조건을 임시 구조화했습니다.";
+        : "요청을 좌석 우선순위, 가격 상한, 수량 조건으로 정리했습니다.";
 
   renderConditionSummary();
 }

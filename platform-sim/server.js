@@ -81,14 +81,26 @@ function extractTotalBudget(text) {
   return null;
 }
 
+function gradeMentions(text) {
+  return [...text.matchAll(/\b(VIP|R|S)\s*석?/g)].map((match) => match[1]);
+}
+
+function fallbackTextPart(text) {
+  const parts = text.split(/없으면|안되면|안 되면|못잡으면|못 잡으면|불가능하면|대안|차선/);
+  return parts.slice(1).join(" ");
+}
+
 function fallbackParseCondition(text) {
   const normalized = text.replace(/\s+/g, " ").trim().toUpperCase();
-  const fallbackSplit = normalized.split(/없으면|안되면|안 되면|못 잡으면|대안|차선/);
-  const primaryPart = fallbackSplit[0] || normalized;
-  const fallbackPart = fallbackSplit.slice(1).join(" ") || "";
+  const fallbackPart = fallbackTextPart(normalized);
+  const primaryPart = fallbackPart ? normalized.slice(0, normalized.indexOf(fallbackPart)).trim() : normalized;
   const grades = ["VIP", "R", "S"];
-  const primaryGrade = grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(primaryPart)) || null;
-  const fallbackGrade = grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(fallbackPart)) || null;
+  const mentions = gradeMentions(normalized);
+  const primaryGrade = grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(primaryPart)) || mentions[0] || null;
+  const fallbackGrade =
+    grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(fallbackPart)) ||
+    mentions.find((grade) => grade !== primaryGrade) ||
+    null;
   const countMatch = normalized.match(/(\d+)\s*(연석|연속|매|장)/);
   const seatCount = countMatch ? Number(countMatch[1]) : 1;
   const totalBudget = extractTotalBudget(normalized);
