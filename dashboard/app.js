@@ -425,6 +425,7 @@ function showProgress() {
 function showBooking() {
   $("progressView").classList.remove("hidden");
   $("progressView").classList.remove("visible");
+  $("progressView").classList.remove("queue-only");
   $("bookingView").classList.remove("hidden");
   showUserView(false);
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -466,6 +467,7 @@ function renderSteps(doneCount = 0, finalLabel = "Release/Refund") {
 
 function renderProgressPending(message) {
   showProgress();
+  $("progressView").classList.add("queue-only");
   renderSteps(1);
   $("queueStatus").textContent = "RUNNING";
   $("queueStatus").className = "status-chip warning";
@@ -518,7 +520,7 @@ function paintSeatMap(containerId, selectedGrade = null, refundMode = false) {
     zone.classList.toggle("sold-out", available <= 0);
     zone.classList.toggle("selected", Boolean(selectedGrade && grade === selectedGrade && !refundMode));
     zone.classList.toggle("refund-muted", Boolean(refundMode));
-    zone.textContent = `${grade} ${available > 0 ? available : 0}`;
+    zone.innerHTML = `<strong>${grade}</strong><span>${available > 0 ? `잔여 ${available}` : "매진"}</span>`;
   });
 }
 
@@ -692,6 +694,7 @@ async function resetDemoState() {
 }
 
 function renderResult(rawPayload) {
+  $("progressView").classList.remove("queue-only");
   const result = normalizeDemoResult(rawPayload);
   const isRefund = result.decision === "REFUND" || Boolean(result.refund);
   const isFallback = result.decision === "SETTLE_FALLBACK" || result.offer?.match_type === "FALLBACK";
@@ -786,11 +789,11 @@ async function runDemo(scenarioName) {
 
     log("사용자 조건을 공식 대기열에 등록하고 예치 가능 상태를 생성했습니다.");
     const queue = await post("/queue/join", { event: EVENT_NAME, user_id: userId, conditions });
-    await animateWaitingAhead([112, 96, 81, 67, 54, 42], 360);
+    await animateWaitingAhead([124, 119, 114, 108, 101, 95, 88, 80, 73, 66], 760);
     renderSteps(3);
 
     log("공식 대기열 순번이 도달해 좌석 Offer 검증 단계로 전환했습니다.");
-    await animateWaitingAhead([31, 23, 16, 10, 6, 3, 1], 360);
+    await animateWaitingAhead([58, 51, 45, 38, 32, 26, 20, 15, 11, 7, 4, 2, 1], 760);
     await post("/queue/advance", { event: EVENT_NAME, count: queue.position || 1 });
     $("waitingAhead").textContent = "1명";
     renderSteps(4);
@@ -800,6 +803,7 @@ async function runDemo(scenarioName) {
     renderResult(payload);
     await refreshEvents();
   } catch (error) {
+    $("progressView").classList.remove("queue-only");
     $("queueStatus").textContent = "ERROR";
     $("queueStatus").className = "status-chip warning";
     $("queueHeadline").textContent = "실행 실패";
