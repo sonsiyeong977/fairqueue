@@ -1,5 +1,6 @@
 const PROGRAM_ID = "618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj";
 const EVENT_NAME = "IU Concert";
+const SEAT_PRICES = { VIP: 250000, R: 190000, S: 120000 };
 
 const state = {
   event: null,
@@ -58,13 +59,16 @@ function explorerTx(tx) {
 
 function conditionsFromForm() {
   const fallbackGrade = $("fallbackGrade").value;
+  const primaryGrade = $("primaryGrade").value;
+  const primaryPrice = Number($("maxPrice").value) || SEAT_PRICES[primaryGrade] || 0;
+  const fallbackPrice = Number($("fallbackPrice").value) || SEAT_PRICES[fallbackGrade] || 0;
   return {
     primary: {
-      grade: $("primaryGrade").value,
-      max_price_krw: Number($("maxPrice").value),
+      grade: primaryGrade,
+      max_price_krw: primaryPrice,
     },
     fallback_rules: fallbackGrade
-      ? [{ grade: fallbackGrade, max_price_krw: Number($("fallbackPrice").value) }]
+      ? [{ grade: fallbackGrade, max_price_krw: fallbackPrice }]
       : [],
     seat_count: Number($("seatCount").value),
   };
@@ -113,6 +117,7 @@ function extractFallbackBudget(text) {
   const fallbackPart = fallbackTextPart(text);
 
   const patterns = [
+    /(?:VIP|R|S)\s*석?(?:으로|로)?\s*(?:하면|잡으면|잡을 경우|일 경우)[^0-9]{0,20}(\d[\d,]*)\s*(만원|원)/,
     /(?:대안\s*좌석|R석|S석|VIP석)[^.!?。]{0,30}(?:경우|때)[^0-9]{0,16}(\d[\d,]*)\s*(만원|원)/,
     /(?:대안\s*좌석|R석|S석|VIP석)[^.!?。]{0,30}(?:예산|최대|상한)[^0-9]{0,16}(\d[\d,]*)\s*(만원|원)/,
     /(?:대신|다만)[^.!?。]{0,30}(\d[\d,]*)\s*(만원|원)/,
@@ -151,9 +156,11 @@ function parseNaturalPrompt(text) {
   const fallbackBudget = extractFallbackBudget(normalized);
   const perSeatBudget = totalBudget && seatCount ? Math.floor(totalBudget / seatCount) : totalBudget;
   const fallbackPerSeatBudget = fallbackBudget && seatCount ? Math.floor(fallbackBudget / seatCount) : fallbackBudget;
-  const primaryPrice = primaryGrade ? extractPriceForGrade(normalized, primaryGrade) || perSeatBudget : perSeatBudget;
+  const primaryPrice = primaryGrade
+    ? extractPriceForGrade(normalized, primaryGrade) || perSeatBudget || SEAT_PRICES[primaryGrade]
+    : perSeatBudget;
   const fallbackPrice = fallbackGrade
-    ? fallbackPerSeatBudget || extractPriceForGrade(fallbackPart, fallbackGrade) || primaryPrice
+    ? fallbackPerSeatBudget || extractPriceForGrade(fallbackPart, fallbackGrade) || SEAT_PRICES[fallbackGrade] || primaryPrice
     : null;
 
   return { primaryGrade, fallbackGrade, primaryPrice, fallbackPrice, seatCount };
@@ -179,11 +186,11 @@ function applyParsedCondition(parsed, source = "gemini") {
   $("fallbackPrice").value = fallbackGrade ? fallbackPrice : "";
   $("seatCount").value = seatCount ? Math.min(Math.max(Number(seatCount), 1), 5) : "";
   if (source === "gemini") {
-    $("geminiMessage").textContent = "Gemini가 자연어 요청을 좌석 우선순위, 가격 상한, 수량 조건으로 구조화했습니다.";
+    $("geminiMessage").textContent = "Gemini가 자연어 요청을 좌석 우선순위, 가격 조건, 수량 조건으로 구조화했습니다.";
   } else if (source === "pending") {
     $("geminiMessage").textContent = "Gemini가 요청을 해석하고 있습니다.";
   } else {
-    $("geminiMessage").textContent = "요청을 좌석 우선순위, 가격 상한, 수량 조건으로 정리했습니다.";
+    $("geminiMessage").textContent = "요청을 좌석 우선순위, 가격 조건, 수량 조건으로 정리했습니다.";
   }
 
   renderConditionSummary();
@@ -253,7 +260,6 @@ function renderParsedGrid() {
   const fallback = conditions.fallback_rules[0];
   const hasCondition =
     Boolean(conditions.primary.grade) &&
-    conditions.primary.max_price_krw > 0 &&
     conditions.seat_count > 0;
 
   $("geminiInterpretation").classList.toggle("hidden", !hasCondition);
@@ -279,11 +285,11 @@ function renderParsedGrid() {
       <strong>${conditions.seat_count}매</strong>
     </div>
     <div>
-      <span>1순위 가격 상한</span>
+      <span>1순위 결제 기준</span>
       <strong>${formatKrw(conditions.primary.max_price_krw)} / 장</strong>
     </div>
     <div>
-      <span>최대 예산</span>
+      <span>예상 결제 금액</span>
       <strong>${formatKrw(fallback ? Math.max(primaryBudget, fallbackBudget) : primaryBudget)}</strong>
     </div>
   `;
@@ -294,7 +300,6 @@ function renderConditionSummary() {
   const fallback = conditions.fallback_rules[0];
   const hasCondition =
     Boolean(conditions.primary.grade) &&
-    conditions.primary.max_price_krw > 0 &&
     conditions.seat_count > 0;
 
   if (!hasCondition) {
@@ -311,7 +316,7 @@ function renderConditionSummary() {
       <strong>${conditions.primary.grade}석${fallback ? ` · 대안 ${fallback.grade}석` : ""}</strong>
     </div>
     <div>
-      <span>최대 예산</span>
+      <span>예상 결제 금액</span>
       <strong>${formatKrw(fallback ? Math.max(primaryBudget, fallbackBudget) : primaryBudget)}</strong>
     </div>
     <div>
@@ -738,9 +743,9 @@ async function runDemo(scenarioName) {
     const conditions = conditionsFromForm();
     if (
       scenarioName === "custom" &&
-      (!conditions.primary.grade || conditions.primary.max_price_krw <= 0 || conditions.seat_count <= 0)
+      (!conditions.primary.grade || conditions.seat_count <= 0)
     ) {
-      throw new Error("예매 조건을 먼저 입력해 주세요. 좌석 등급, 최대 가격, 수량이 필요합니다.");
+      throw new Error("예매 조건을 먼저 입력해 주세요. 좌석 등급과 수량이 필요합니다.");
     }
     if (scenarioName === "custom") {
       log("현재 남은 좌석 재고를 기준으로 사용자 조건을 처리합니다.");

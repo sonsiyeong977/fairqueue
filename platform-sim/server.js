@@ -17,6 +17,7 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
 
 const defaultEventName = "IU Concert";
+const SEAT_PRICES = { VIP: 250000, R: 190000, S: 120000 };
 
 const state = {
   events: {
@@ -85,6 +86,7 @@ function extractFallbackBudget(text) {
   const fallbackPart = fallbackTextPart(text);
 
   const patterns = [
+    /(?:VIP|R|S)\s*석?(?:으로|로)?\s*(?:하면|잡으면|잡을 경우|일 경우)[^0-9]{0,20}(\d[\d,]*)\s*(만원|원)/,
     /(?:대안\s*좌석|R석|S석|VIP석)[^.!?。]{0,30}(?:경우|때)[^0-9]{0,16}(\d[\d,]*)\s*(만원|원)/,
     /(?:대안\s*좌석|R석|S석|VIP석)[^.!?。]{0,30}(?:예산|최대|상한)[^0-9]{0,16}(\d[\d,]*)\s*(만원|원)/,
     /(?:대신|다만)[^.!?。]{0,30}(\d[\d,]*)\s*(만원|원)/,
@@ -124,9 +126,11 @@ function fallbackParseCondition(text) {
   const fallbackBudget = extractFallbackBudget(normalized);
   const perSeatBudget = totalBudget && seatCount ? Math.floor(totalBudget / seatCount) : totalBudget;
   const fallbackPerSeatBudget = fallbackBudget && seatCount ? Math.floor(fallbackBudget / seatCount) : fallbackBudget;
-  const primaryPrice = primaryGrade ? extractPriceForGrade(normalized, primaryGrade) || perSeatBudget : perSeatBudget;
+  const primaryPrice = primaryGrade
+    ? extractPriceForGrade(normalized, primaryGrade) || perSeatBudget || SEAT_PRICES[primaryGrade]
+    : perSeatBudget;
   const fallbackPrice = fallbackGrade
-    ? fallbackPerSeatBudget || extractPriceForGrade(fallbackPart, fallbackGrade) || primaryPrice
+    ? fallbackPerSeatBudget || extractPriceForGrade(fallbackPart, fallbackGrade) || SEAT_PRICES[fallbackGrade] || primaryPrice
     : null;
 
   return {
@@ -152,12 +156,14 @@ function normalizeParsedCondition(parsed, originalText) {
   const perSeatFromTextFallback = textFallbackBudget && seatCount ? Math.floor(textFallbackBudget / seatCount) : 0;
   const primaryGrade = parsed.primary?.grade || parsed.preferred_grade || fallback.primary.grade;
   const firstFallbackGrade = fallbackRule?.grade || fallback.fallback_rules[0]?.grade;
+  const primaryDefaultPrice = SEAT_PRICES[primaryGrade] || fallback.primary.max_price_krw || 0;
+  const fallbackDefaultPrice = SEAT_PRICES[firstFallbackGrade] || fallback.fallback_rules[0]?.max_price_krw || 0;
 
   return {
     event: parsed.event || fallback.event,
     primary: {
       grade: primaryGrade,
-      max_price_krw: perSeatFromTextTotal || perSeatFromTotal || primaryPrice || fallback.primary.max_price_krw,
+      max_price_krw: perSeatFromTextTotal || perSeatFromTotal || primaryPrice || fallback.primary.max_price_krw || primaryDefaultPrice,
     },
     fallback_rules: firstFallbackGrade
       ? [
@@ -165,12 +171,9 @@ function normalizeParsedCondition(parsed, originalText) {
             grade: firstFallbackGrade,
             max_price_krw:
               perSeatFromTextFallback ||
-              perSeatFromTextTotal ||
-              perSeatFromTotal ||
               Number(fallbackRule?.max_price_krw || 0) ||
-              perSeatFromTotal ||
-              primaryPrice ||
-              fallback.fallback_rules[0]?.max_price_krw,
+              fallback.fallback_rules[0]?.max_price_krw ||
+              fallbackDefaultPrice,
           },
         ]
       : [],
@@ -535,6 +538,7 @@ app.post("/parse-condition", async (req, res) => {
 대안 좌석이 있으면 fallback_rules[0]에 넣어라.
 대안 좌석의 예산이 따로 있으면 fallback_rules[0].max_price_krw에는 대안 총예산을 seat_count로 나눈 1장당 최대 가격을 넣어라.
 예: "VIP 5연석, 총 130만원. R석은 100만원까지만"이면 primary.max_price_krw=260000, fallback_rules[0].max_price_krw=200000.
+사용자가 예산 또는 가격 상한을 말하지 않았다면 max_price_krw는 null로 둬라. 공연장 정상가는 서버가 나중에 적용한다.
 사용자가 "정상가", "좌석 가격"을 말하지 않았다면 공연장 정상가를 예산으로 추정하지 마라.
 사용자 요청에 명시된 예산이 좌석 실제 가격보다 우선한다.
 "각각 한 자리씩", "따로 잡아도 됨" 표현은 allow_split_seats=true로 둔다.

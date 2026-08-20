@@ -177,14 +177,15 @@ function deterministicDecisionOnly(userConditions, offeredSeat) {
   if (!offeredSeat) return "REFUND";
 
   const { primary, fallback_rules = [] } = userConditions;
+  const primaryPriceCap = Number(primary.max_price_krw || offeredSeat.price_krw);
   const matchesPrimary =
     offeredSeat.grade === primary.grade &&
-    offeredSeat.price_krw <= primary.max_price_krw;
+    offeredSeat.price_krw <= primaryPriceCap;
 
   if (matchesPrimary) return "SETTLE_PRIMARY";
 
   const matchesFallback = fallback_rules.some(
-    (rule) => offeredSeat.grade === rule.grade && offeredSeat.price_krw <= rule.max_price_krw
+    (rule) => offeredSeat.grade === rule.grade && offeredSeat.price_krw <= Number(rule.max_price_krw || offeredSeat.price_krw)
   );
 
   return matchesFallback ? "SETTLE_FALLBACK" : "REFUND";
@@ -200,13 +201,14 @@ function verifyDecisionDeterministically(userConditions, offeredSeat, geminiDeci
   }
 
   const { primary, fallback_rules = [] } = userConditions;
+  const primaryPriceCap = Number(primary.max_price_krw || offeredSeat.price_krw);
 
   const matchesPrimary =
     offeredSeat.grade === primary.grade &&
-    offeredSeat.price_krw <= primary.max_price_krw;
+    offeredSeat.price_krw <= primaryPriceCap;
 
   const matchesFallback = fallback_rules.some(
-    (rule) => offeredSeat.grade === rule.grade && offeredSeat.price_krw <= rule.max_price_krw
+    (rule) => offeredSeat.grade === rule.grade && offeredSeat.price_krw <= Number(rule.max_price_krw || offeredSeat.price_krw)
   );
 
   let correctDecision;
@@ -238,7 +240,9 @@ app.post("/settle", requireApiKey, async (req, res) => {
     console.log("   user_conditions:", user_conditions);
     console.log("   offered_seat:", offered_seat);
 
-    const maxAmount = krwToSol(user_conditions.primary.max_price_krw);
+    const requestedCount = Number(user_conditions.seat_count || offered_seat?.count || 1);
+    const primaryCapKrw = Number(user_conditions.primary?.max_price_krw || offered_seat?.price_krw || 0);
+    const maxAmount = krwToSol(primaryCapKrw * requestedCount);
 
     let geminiDecision;
     if (!offered_seat) {
@@ -270,7 +274,7 @@ app.post("/settle", requireApiKey, async (req, res) => {
     }
 
     const finalDecision = verification.finalDecision;
-    const finalAmount = finalDecision === "REFUND" ? maxAmount : krwToSol(offered_seat.price_krw);
+    const finalAmount = finalDecision === "REFUND" ? maxAmount : krwToSol(offered_seat.price_krw * Number(offered_seat.count || requestedCount));
     const sellerPubkey = sellerWallet.publicKey.toBase58();
 
     const fundResult = await fundEscrow(finalAmount, sellerPubkey);
