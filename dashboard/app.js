@@ -1,6 +1,7 @@
 const PROGRAM_ID = "618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj";
 const EVENT_NAME = "IU Concert";
 const SEAT_PRICES = { VIP: 250000, R: 190000, S: 120000 };
+const ZONE_CAPACITY = { "VIP-A": 6, "R-A": 5, "R-B": 5, "S-A": 5, "S-B": 5, "S-C": 5 };
 
 const state = {
   event: null,
@@ -13,6 +14,7 @@ const state = {
   selectedGrade: null,
   resultRefund: false,
   allocatedSeats: [],
+  resultZoneAvailability: null,
 };
 
 const scenarios = {
@@ -490,6 +492,7 @@ function renderProgressPending(message) {
   state.selectedGrade = null;
   state.resultRefund = false;
   state.allocatedSeats = [];
+  state.resultZoneAvailability = null;
   paintSeatMap("resultSeatMap");
   renderSeatDetail(false);
 }
@@ -512,28 +515,49 @@ function seatStatusLabel(seat) {
   return `잔여 ${available}석`;
 }
 
+function zoneNamesForGrade(grade) {
+  if (grade === "VIP") return ["VIP-A"];
+  if (grade === "R") return ["R-A", "R-B"];
+  if (grade === "S") return ["S-A", "S-B", "S-C"];
+  return [`${grade}-A`];
+}
+
+function buildZoneAvailability(seats = [], allocations = []) {
+  const availability = {};
+  ["VIP", "R", "S"].forEach((grade) => {
+    let remaining = Number(seats.find((row) => row.grade === grade)?.available_count ?? seats.find((row) => row.grade === grade)?.count ?? 0);
+    zoneNamesForGrade(grade).forEach((zone) => {
+      const zoneAvailable = Math.min(remaining, ZONE_CAPACITY[zone] || 5);
+      availability[zone] = zoneAvailable;
+      remaining = Math.max(remaining - zoneAvailable, 0);
+    });
+  });
+
+  allocations.forEach((seat) => {
+    availability[seat.zone] = Math.max(Number(availability[seat.zone] || 0) - 1, 0);
+  });
+
+  return availability;
+}
+
 function paintSeatMap(containerId, selectedGrade = null, refundMode = false) {
   const container = $(containerId);
   if (!container) return;
   const seats = state.event?.seats || state.activeSeatRows || [];
-  const zonesByGrade = [...container.querySelectorAll(".seat-zone")].reduce((acc, zone) => {
-    acc[zone.dataset.grade] = [...(acc[zone.dataset.grade] || []), zone];
-    return acc;
-  }, {});
+  const availabilityByZone =
+    containerId === "resultSeatMap" && state.resultZoneAvailability
+      ? state.resultZoneAvailability
+      : buildZoneAvailability(seats);
 
   container.querySelectorAll(".seat-zone").forEach((zone) => {
     const grade = zone.dataset.grade;
-    const seat = seats.find((row) => row.grade === grade);
-    const totalAvailable = Number(seat?.available_count ?? seat?.count ?? 0);
-    const gradeZones = zonesByGrade[grade] || [zone];
-    const zoneIndex = gradeZones.indexOf(zone);
-    const base = Math.floor(totalAvailable / gradeZones.length);
-    const available = base + (zoneIndex < totalAvailable % gradeZones.length ? 1 : 0);
+    const zoneName = zone.dataset.zone || grade;
+    const available = Number(availabilityByZone[zoneName] || 0);
     zone.classList.toggle("available", available > 0);
     zone.classList.toggle("sold-out", available <= 0);
     zone.classList.toggle("selected", Boolean(selectedGrade && grade === selectedGrade && !refundMode));
     zone.classList.toggle("refund-muted", Boolean(refundMode));
-    zone.innerHTML = `<strong>${zone.dataset.zone || grade}</strong><span>${available > 0 ? `잔여 ${available}` : "매진"}</span>`;
+    zone.innerHTML = `<strong>${zoneName}</strong><span>${available > 0 ? `잔여 ${available}` : "매진"}</span>`;
   });
 }
 
@@ -554,16 +578,10 @@ function renderSeats() {
   paintSeatMap("resultSeatMap", state.selectedGrade, state.resultRefund);
 }
 
-function zoneNamesForGrade(grade) {
-  if (grade === "VIP") return ["VIP-A"];
-  if (grade === "R") return ["R-A", "R-B"];
-  if (grade === "S") return ["S-A", "S-B", "S-C"];
-  return [`${grade}-A`];
-}
-
 function buildAllocatedSeats(grade, quantity) {
+  const availability = buildZoneAvailability(state.activeSeatRows.length ? state.activeSeatRows : state.event?.seats || []);
   const zones = zoneNamesForGrade(grade);
-  const zone = zones[0];
+  const zone = zones.find((name) => Number(availability[name] || 0) >= quantity) || zones[0];
   return Array.from({ length: quantity }, (_, index) => {
     const row = String.fromCharCode(65 + Math.floor(index / 12));
     const number = String(index + 1).padStart(2, "0");
@@ -588,6 +606,7 @@ function renderSeatDetail(open = false) {
 
   const grade = state.selectedGrade;
   const zones = zoneNamesForGrade(grade);
+  const beforeAllocation = buildZoneAvailability(state.activeSeatRows.length ? state.activeSeatRows : state.event?.seats || []);
   panel.innerHTML = `
     <div class="seat-detail-header">
       <span>${grade}석 상세 좌석</span>
@@ -600,7 +619,7 @@ function renderSeatDetail(open = false) {
             <section>
               <p>${zone}</p>
               <div class="grape-row">
-                ${Array.from({ length: 12 }, (_, index) => {
+                ${Array.from({ length: Math.max(beforeAllocation[zone] || 0, state.allocatedSeats.filter((seat) => seat.zone === zone).length) }, (_, index) => {
                   const seatNo = index + 1;
                   const allocated = state.allocatedSeats.some((seat) => seat.zone === zone && seat.row === "A" && seat.seatNo === seatNo);
                   return `<span class="grape-seat${allocated ? " selected" : ""}" title="${zone} ${String(seatNo).padStart(2, "0")}">${seatNo}</span>`;
@@ -799,6 +818,9 @@ function renderResult(rawPayload) {
   state.selectedGrade = grade || null;
   state.resultRefund = isRefund;
   state.allocatedSeats = isRefund || !grade ? [] : buildAllocatedSeats(grade, quantity);
+  state.resultZoneAvailability = isRefund
+    ? null
+    : buildZoneAvailability(state.activeSeatRows.length ? state.activeSeatRows : state.event?.seats || [], state.allocatedSeats);
   paintSeatMap("resultSeatMap", grade, isRefund);
   renderSeatDetail(false);
 
@@ -885,6 +907,7 @@ async function runDemo(scenarioName) {
     $("progressView").classList.remove("queue-only");
     $("progressView").classList.add("final-result");
     state.allocatedSeats = [];
+    state.resultZoneAvailability = null;
     renderSeatDetail(false);
     $("queueStatus").textContent = "ERROR";
     $("queueStatus").className = "status-chip warning";
