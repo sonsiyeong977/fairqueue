@@ -137,7 +137,7 @@ FairQueue는 결제·에스크로를 직접 운영하는 주체가 아니라, **
 <img src="docs/images/escrow_real_call.png" alt="에스크로 실제 API 호출 로그" width="90%">
 </p>
 
-`curl`로 `/settle` 엔드포인트에 유저 조건(`primary`, `fallback_rules`)과 제안 좌석(`offered_seat`)을 전달하면, 정산 서버가 이를 파싱해 `SETTLE_PRIMARY` 판정과 함께 예치(`fund_tx`)·정산(`settle_tx`)·잔액 반환(`change_tx`) 트랜잭션 해시를 Explorer 링크와 함께 반환합니다.
+`curl`로 `/settle` 엔드포인트에 유저 조건(`primary`, `fallback_rules`)과 제안 좌석(`offered_seat`)을 전달하면, 정산 서버가 이를 파싱해 `SETTLE_PRIMARY` 또는 `REFUND` 판정과 함께 예치(`fund_tx`)·정산/환불(`settle_tx`) 트랜잭션 해시를 Explorer 링크와 함께 반환합니다.
 
 <br>
 
@@ -223,12 +223,12 @@ FairQueue의 온체인 정산은 Solana Devnet에 배포된 Anchor 프로그램�
 </tr>
 </table>
 
-> **현재 구현 범위**: 위 AI 파이프라인은 **Gemini Developer API** 기준으로 구현·검증되었습니다. Vertex AI, Cloud Run, Cloud KMS는 상용화 단계에서의 확장 계획이며, 현재 데모에 포함된 기능이 아닙니다 — 없는 기능을 있는 것처럼 표시하지 않습니다.
+> **현재 구현 범위**: 위 AI 파이프라인은 **Gemini Developer API** 기준으로 구현·검증되었습니다. 대시보드/플랫폼 API와 정산 API는 Google Cloud Run에 배포 가능한 Docker 기반 Node.js 서비스로 구성했습니다. Vertex AI와 Cloud KMS는 상용화 단계에서의 확장 계획입니다 — 없는 기능을 있는 것처럼 표시하지 않습니다.
 >
 > | 구분 | 내용 |
 > |:---|:---|
-> | **현재** | Gemini Developer API 기반 자연어 → 조건 구조화 (구현·검증 완료) |
-> | **상용화 확장 (로드맵)** | Vertex AI(AI 운영·모니터링), Cloud Run(API 확장), Cloud KMS(지갑 키 관리 강화) |
+> | **현재** | Gemini Developer API 기반 자연어 → 조건 구조화, Cloud Run 기반 라이브 데모 URL, Anchor Devnet 정산 |
+> | **상용화 확장 (로드맵)** | Vertex AI(AI 운영·모니터링), Cloud KMS(지갑 키 관리 강화), 원화 결제망/PG 연동 |
 
 <br>
 
@@ -238,12 +238,13 @@ FairQueue의 온체인 정산은 Solana Devnet에 배포된 Anchor 프로그램�
 
 | 영역 | 기술 |
 |:---|:---|
-| AI | Google Gemini (`gemini-flash-latest`, Developer API) — 조건 협상 및 1차 판단 |
+| AI | Google Gemini (Developer API) — 조건 협상 및 1차 판단 |
 | 검증 | 결정론적 정책 엔진 (코드 기반 재검증 레이어) |
 | 결제/온체인 | Solana Devnet, Anchor (Rust), PDA Escrow |
 | Solana Client | `@coral-xyz/anchor`, `@solana/web3.js` |
 | 백엔드 | Node.js, Express |
 | 프론트엔드 | HTML, CSS, JavaScript 기반 데모 대시보드 |
+| 배포 | Google Cloud Run, Dockerfile 기반 컨테이너 배포 |
 | 지갑/서명 | Agent keypair 기반 자율 서명 (승인 팝업 없음) — *상용화 단계에서는 Google Cloud KMS 등 관리형 키 서비스로 전환 예정, 현재는 PoC 수준의 로컬 키페어 기반* |
 
 </div>
@@ -262,6 +263,21 @@ FairQueue의 온체인 정산은 Solana Devnet에 배포된 Anchor 프로그램�
 
 <br>
 
+## Live Demo URL
+
+```text
+https://fairqueue-dashboard-305088341641.asia-northeast3.run.app/dashboard/
+```
+
+Cloud Run 서비스는 두 개로 분리되어 있습니다.
+
+- `fairqueue-dashboard` — 플랫폼 시뮬레이터 API와 데모 대시보드
+- `fairqueue-settle` — `/settle` 정산 API, Gemini 판단, Anchor escrow 호출
+
+`fairqueue-dashboard`는 `SETTLE_SERVER_URL` 환경변수로 `fairqueue-settle`을 호출하며, 성공/대안/환불 케이스에서 Solana Devnet Tx Hash를 반환합니다.
+
+<br>
+
 ## 로컬 실행 방법
 
 ```bash
@@ -274,6 +290,7 @@ npm install
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-3.6-flash
 SOLANA_CLUSTER=devnet
 SETTLE_SERVER_URL=http://localhost:4000
 SETTLE_API_KEY=fairqueue-demo-key
@@ -318,6 +335,8 @@ fairqueue/
 │   └── server.js            # 좌석/대기열/Offer 상태 관리 Express API
 ├── dashboard/
 │   └── index.html           # 데모 대시보드
+├── start.js                 # Cloud Run에서 platform/settle 서비스를 선택 실행
+├── Dockerfile               # Cloud Run 배포용 Node.js 컨테이너 정의
 ├── docs/
 │   ├── images/               # README용 스크린샷
 │   ├── PLATFORM_SIM_API.md  # 플랫폼 시뮬레이터 API 문서
@@ -335,7 +354,7 @@ fairqueue/
 |:---|:---|
 | 혁신성 및 UX | 조건 위임 기반 자동 정산 + 즉시 환불 + 결정론적 검증으로 안전성 확보 |
 | AI 활용도 | Gemini 기반 자연어 협상 · 근거 있는 판단 · 결정론적 레이어와의 역할 분리 |
-| 인프라 연동 | 현재 구현: Solana Devnet + Anchor PDA Escrow, Gemini Developer API / 확장 로드맵: USDC·Solana Pay, Vertex AI·Cloud Run·Cloud KMS |
+| 인프라 연동 | 현재 구현: Solana Devnet + Anchor PDA Escrow, Gemini Developer API, Google Cloud Run / 확장 로드맵: USDC·Solana Pay, Vertex AI·Cloud KMS |
 | 실제 구동 여부 | 실제 Devnet 트랜잭션과 데모 대시보드로 검증 |
 
 </div>
