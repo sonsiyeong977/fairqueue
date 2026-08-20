@@ -7,18 +7,20 @@ const state = {
   transactions: [],
   activeSeatRows: [],
   activeView: "user",
+  parseTimer: null,
+  parseRequestSeq: 0,
 };
 
 const scenarios = {
   success: [
-    { grade: "VIP", price_krw: 250000, count: 1 },
-    { grade: "R", price_krw: 190000, count: 3 },
-    { grade: "S", price_krw: 120000, count: 4 },
+    { grade: "VIP", price_krw: 250000, count: 4 },
+    { grade: "R", price_krw: 190000, count: 8 },
+    { grade: "S", price_krw: 120000, count: 12 },
   ],
   fallback: [
-    { grade: "VIP", price_krw: 250000, count: 1 },
+    { grade: "VIP", price_krw: 250000, count: 0 },
     { grade: "R", price_krw: 190000, count: 0 },
-    { grade: "S", price_krw: 120000, count: 4 },
+    { grade: "S", price_krw: 120000, count: 12 },
   ],
   refund: [
     { grade: "VIP", price_krw: 250000, count: 0 },
@@ -92,6 +94,21 @@ function extractPriceForGrade(text, grade) {
   return null;
 }
 
+function extractTotalBudget(text) {
+  const patterns = [
+    /(?:총\s*)?(?:예산|예매\s*예산)[^0-9]{0,12}(\d[\d,]*)\s*(만원|원)/,
+    /(\d[\d,]*)\s*(만원|원)[^가-힣0-9]{0,12}(?:까지|이하)?[^가-힣0-9]{0,8}(?:예산)/,
+    /(\d[\d,]*)\s*(만원|원)\s*까지/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return priceToKrw(match[1], match[2]);
+  }
+
+  return null;
+}
+
 function parseNaturalPrompt(text) {
   const normalized = text.replace(/\s+/g, " ").trim().toUpperCase();
   const fallbackSplit = normalized.split(/없으면|안되면|못 잡으면|대안|차선/);
@@ -102,22 +119,63 @@ function parseNaturalPrompt(text) {
   const fallbackGrade = grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(fallbackPart));
   const countMatch = normalized.match(/(\d+)\s*(연석|연속|매|장)/);
   const seatCount = countMatch ? Number(countMatch[1]) : null;
-  const primaryPrice = primaryGrade ? extractPriceForGrade(normalized, primaryGrade) : null;
+  const totalBudget = extractTotalBudget(normalized);
+  const perSeatBudget = totalBudget && seatCount ? Math.floor(totalBudget / seatCount) : totalBudget;
+  const primaryPrice = primaryGrade ? extractPriceForGrade(normalized, primaryGrade) || perSeatBudget : perSeatBudget;
   const fallbackPrice = fallbackGrade ? extractPriceForGrade(fallbackPart, fallbackGrade) || primaryPrice : null;
 
   return { primaryGrade, fallbackGrade, primaryPrice, fallbackPrice, seatCount };
 }
 
 function applyNaturalPromptToForm() {
-  const parsed = parseNaturalPrompt($("naturalPrompt").value);
+  applyParsedCondition(parseNaturalPrompt($("naturalPrompt").value), "fallback");
+}
 
-  if (parsed.primaryGrade) $("primaryGrade").value = parsed.primaryGrade;
-  if (parsed.fallbackGrade) $("fallbackGrade").value = parsed.fallbackGrade;
-  if (parsed.primaryPrice) $("maxPrice").value = parsed.primaryPrice;
-  if (parsed.fallbackPrice) $("fallbackPrice").value = parsed.fallbackPrice;
-  if (parsed.seatCount) $("seatCount").value = Math.min(Math.max(parsed.seatCount, 1), 5);
+function applyParsedCondition(parsed, source = "gemini") {
+  const primary = parsed.primary || {};
+  const fallback = Array.isArray(parsed.fallback_rules) ? parsed.fallback_rules[0] : null;
+
+  $("primaryGrade").value = primary.grade || parsed.primaryGrade || "";
+  $("fallbackGrade").value = fallback?.grade || parsed.fallbackGrade || "";
+  $("maxPrice").value = primary.max_price_krw || parsed.primaryPrice || "";
+  $("fallbackPrice").value = fallback?.max_price_krw || parsed.fallbackPrice || "";
+  $("seatCount").value = parsed.seat_count || parsed.seatCount ? Math.min(Math.max(Number(parsed.seat_count || parsed.seatCount), 1), 5) : "";
+  $("geminiMessage").textContent =
+    source === "gemini"
+      ? "Gemini가 자연어 요청을 좌석 우선순위, 가격 상한, 수량 조건으로 구조화했습니다."
+      : "Gemini 응답 지연으로 기본 해석 엔진이 조건을 임시 구조화했습니다.";
 
   renderConditionSummary();
+}
+
+async function parseConditionWithGemini(text, requestSeq) {
+  $("parsingStatus").textContent = "해석 중";
+  $("parsingStatus").className = "status-chip warning";
+
+  try {
+    const payload = await post("/parse-condition", { text });
+    if (requestSeq !== state.parseRequestSeq) return;
+    applyParsedCondition(payload.parsed, payload.source);
+  } catch (error) {
+    if (requestSeq !== state.parseRequestSeq) return;
+    applyParsedCondition(parseNaturalPrompt(text), "fallback");
+  }
+}
+
+function scheduleNaturalPromptParsing() {
+  const text = $("naturalPrompt").value.trim();
+  state.parseRequestSeq += 1;
+  const requestSeq = state.parseRequestSeq;
+  clearTimeout(state.parseTimer);
+
+  if (!text) {
+    applyParsedCondition({}, "fallback");
+    return;
+  }
+
+  state.parseTimer = setTimeout(() => {
+    parseConditionWithGemini(text, requestSeq);
+  }, 650);
 }
 
 function renderParsedGrid() {
@@ -299,7 +357,7 @@ function showUserView(scroll = true) {
   $("bookingView").classList.toggle("hidden", $("progressView").classList.contains("visible"));
   $("progressView").classList.remove("hidden");
   $("operatorView").classList.remove("visible");
-  $("logCard")?.classList?.remove("hidden");
+  $("logCard")?.classList?.add("hidden");
   $("userViewBtn").classList.add("active");
   $("operatorViewBtn").classList.remove("active");
   if (scroll) window.scrollTo({ top: 0, behavior: "smooth" });
@@ -310,6 +368,7 @@ function showOperatorView() {
   $("bookingView").classList.add("hidden");
   $("progressView").classList.add("hidden");
   $("operatorView").classList.add("visible");
+  $("logCard")?.classList?.remove("hidden");
   $("userViewBtn").classList.remove("active");
   $("operatorViewBtn").classList.add("active");
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -660,7 +719,7 @@ function bind() {
   ["primaryGrade", "fallbackGrade", "maxPrice", "fallbackPrice", "seatCount"].forEach((id) => {
     $(id).addEventListener("input", renderConditionSummary);
   });
-  $("naturalPrompt").addEventListener("input", applyNaturalPromptToForm);
+  $("naturalPrompt").addEventListener("input", scheduleNaturalPromptParsing);
 }
 
 bind();

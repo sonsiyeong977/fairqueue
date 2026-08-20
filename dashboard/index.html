@@ -59,7 +59,7 @@
 
               <div class="gemini-interpretation hidden" id="geminiInterpretation">
                 <span>GEMINI</span>
-                <p>요청을 좌석 우선순위, 가격 상한, 수량 조건으로 정리했습니다.</p>
+                <p id="geminiMessage">요청을 좌석 우선순위, 가격 상한, 수량 조건으로 정리했습니다.</p>
               </div>
 
               <div class="parsed-grid hidden" id="parsedGrid"></div>
@@ -288,7 +288,7 @@
         </section>
       </section>
 
-      <section class="card log-card">
+      <section class="card log-card hidden" id="logCard">
         <div class="card-title compact">
           <h2>실시간 처리 로그</h2>
           <button class="ghost-button small" id="clearLogBtn" type="button">지우기</button>

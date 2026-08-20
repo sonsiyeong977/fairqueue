@@ -2,6 +2,7 @@
 
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env"), quiet: true });
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 app.use(express.json());
@@ -12,6 +13,8 @@ const TURN_INTERVAL_MS = Number(process.env.TURN_INTERVAL_MS || 8000);
 const HOLD_TTL_MS = Number(process.env.HOLD_TTL_MS || 60_000);
 const SETTLE_SERVER_URL = process.env.SETTLE_SERVER_URL || "http://localhost:4000";
 const SETTLE_API_KEY = process.env.SETTLE_API_KEY;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
 
 const defaultEventName = "IU Concert";
 
@@ -24,9 +27,9 @@ const state = {
       turn_index: 0,
       queue: [],
       seats: [
-        { grade: "VIP", price_krw: 250000, count: 1 },
-        { grade: "R", price_krw: 190000, count: 3 },
-        { grade: "S", price_krw: 120000, count: 4 },
+        { grade: "VIP", price_krw: 250000, count: 4 },
+        { grade: "R", price_krw: 190000, count: 8 },
+        { grade: "S", price_krw: 120000, count: 12 },
       ],
       holds: [],
       orders: [],
@@ -41,6 +44,100 @@ function nowIso() {
 
 function makeId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function priceToKrw(raw, unit) {
+  const value = Number(String(raw || "").replace(/,/g, ""));
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return unit === "만원" ? value * 10000 : value;
+}
+
+function extractPriceForGrade(text, grade) {
+  const patterns = [
+    new RegExp(`${grade}\\s*석?[^0-9]{0,12}(\\d[\\d,]*)\\s*(만원|원)`),
+    new RegExp(`(\\d[\\d,]*)\\s*(만원|원)[^가-힣A-Z0-9]{0,12}${grade}\\s*석?`),
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return priceToKrw(match[1], match[2]);
+  }
+
+  return null;
+}
+
+function extractTotalBudget(text) {
+  const patterns = [
+    /(?:총\s*)?(?:예산|예매\s*예산)[^0-9]{0,12}(\d[\d,]*)\s*(만원|원)/,
+    /(\d[\d,]*)\s*(만원|원)[^가-힣0-9]{0,12}(?:까지|이하)?[^가-힣0-9]{0,8}(?:예산)/,
+    /(\d[\d,]*)\s*(만원|원)\s*까지/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return priceToKrw(match[1], match[2]);
+  }
+
+  return null;
+}
+
+function fallbackParseCondition(text) {
+  const normalized = text.replace(/\s+/g, " ").trim().toUpperCase();
+  const fallbackSplit = normalized.split(/없으면|안되면|안 되면|못 잡으면|대안|차선/);
+  const primaryPart = fallbackSplit[0] || normalized;
+  const fallbackPart = fallbackSplit.slice(1).join(" ") || "";
+  const grades = ["VIP", "R", "S"];
+  const primaryGrade = grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(primaryPart)) || null;
+  const fallbackGrade = grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(fallbackPart)) || null;
+  const countMatch = normalized.match(/(\d+)\s*(연석|연속|매|장)/);
+  const seatCount = countMatch ? Number(countMatch[1]) : 1;
+  const totalBudget = extractTotalBudget(normalized);
+  const perSeatBudget = totalBudget && seatCount ? Math.floor(totalBudget / seatCount) : totalBudget;
+  const primaryPrice = primaryGrade ? extractPriceForGrade(normalized, primaryGrade) || perSeatBudget : perSeatBudget;
+  const fallbackPrice = fallbackGrade ? extractPriceForGrade(fallbackPart, fallbackGrade) || primaryPrice : null;
+
+  return {
+    event: defaultEventName,
+    primary: { grade: primaryGrade, max_price_krw: primaryPrice },
+    fallback_rules: fallbackGrade ? [{ grade: fallbackGrade, max_price_krw: fallbackPrice || primaryPrice }] : [],
+    seat_count: seatCount,
+    adjacency_required: /연석|연속|붙/.test(normalized),
+    allow_split_seats: /각각|따로|한 자리씩|한자리씩/.test(normalized),
+  };
+}
+
+function normalizeParsedCondition(parsed, originalText) {
+  const fallback = fallbackParseCondition(originalText);
+  const seatCount = Number(parsed.seat_count || fallback.seat_count || 1);
+  const totalBudget = Number(parsed.max_total_budget_krw || parsed.total_budget_krw || 0);
+  const primaryPrice = Number(parsed.primary?.max_price_krw || parsed.max_price_krw || 0);
+  const fallbackRule = Array.isArray(parsed.fallback_rules) ? parsed.fallback_rules[0] : null;
+  const perSeatFromTotal = totalBudget && seatCount ? Math.floor(totalBudget / seatCount) : 0;
+  const primaryGrade = parsed.primary?.grade || parsed.preferred_grade || fallback.primary.grade;
+  const firstFallbackGrade = fallbackRule?.grade || fallback.fallback_rules[0]?.grade;
+
+  return {
+    event: parsed.event || fallback.event,
+    primary: {
+      grade: primaryGrade,
+      max_price_krw: primaryPrice || perSeatFromTotal || fallback.primary.max_price_krw,
+    },
+    fallback_rules: firstFallbackGrade
+      ? [
+          {
+            grade: firstFallbackGrade,
+            max_price_krw:
+              Number(fallbackRule?.max_price_krw || 0) ||
+              primaryPrice ||
+              perSeatFromTotal ||
+              fallback.fallback_rules[0]?.max_price_krw,
+          },
+        ]
+      : [],
+    seat_count: seatCount,
+    adjacency_required: Boolean(parsed.adjacency_required ?? fallback.adjacency_required),
+    allow_split_seats: Boolean(parsed.allow_split_seats ?? fallback.allow_split_seats),
+  };
 }
 
 function getOrCreateEvent(eventName) {
@@ -368,6 +465,67 @@ setInterval(advanceTurns, 1000).unref();
 
 app.get("/health", (req, res) => {
   res.json({ ok: true, service: "fairqueue-platform-sim", time: nowIso() });
+});
+
+app.post("/parse-condition", async (req, res) => {
+  const text = String(req.body.text || "").trim();
+  if (!text) {
+    return res.status(400).json({ error: "text is required" });
+  }
+
+  const fallback = fallbackParseCondition(text);
+
+  if (!genAI) {
+    return res.json({
+      source: "fallback",
+      reason: "GEMINI_API_KEY is not configured",
+      parsed: fallback,
+    });
+  }
+
+  try {
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    const prompt = `
+너는 공식 티켓팅 조건 파싱 엔진이다.
+사용자 자연어 요청을 FairQueue가 실행할 수 있는 JSON으로 구조화해라.
+
+좌석 등급은 반드시 "VIP", "R", "S" 중 하나로만 써라.
+가격은 원화 숫자만 써라.
+"40만원까지 예산", "총 40만원"처럼 총예산 표현이면 seat_count로 나눈 1장당 최대 가격을 primary.max_price_krw에 넣어라.
+대안 좌석이 있으면 fallback_rules[0]에 넣어라.
+"각각 한 자리씩", "따로 잡아도 됨" 표현은 allow_split_seats=true로 둔다.
+
+출력은 아래 JSON 형식으로만 해라. 설명이나 markdown은 쓰지 마라.
+{
+  "event": "IU Concert",
+  "primary": { "grade": "VIP", "max_price_krw": 200000 },
+  "fallback_rules": [{ "grade": "R", "max_price_krw": 200000 }],
+  "seat_count": 2,
+  "adjacency_required": true,
+  "allow_split_seats": true
+}
+
+사용자 요청:
+${text}
+`;
+    const result = await model.generateContent(prompt);
+    const cleaned = result.response.text().replace(/```json|```/g, "").trim();
+    const parsed = normalizeParsedCondition(JSON.parse(cleaned), text);
+
+    res.json({
+      source: "gemini",
+      model: GEMINI_MODEL,
+      parsed,
+      raw: cleaned,
+    });
+  } catch (error) {
+    console.warn(`[parse-condition] Gemini failed, fallback parser used: ${error.message}`);
+    res.json({
+      source: "fallback",
+      reason: error.message,
+      parsed: fallback,
+    });
+  }
 });
 
 app.get("/events", (req, res) => {
