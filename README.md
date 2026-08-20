@@ -11,9 +11,11 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Status](https://img.shields.io/badge/Core_Pipeline-Verified_on_Devnet-brightgreen?style=for-the-badge)](#-검증-완료된-핵심-파이프라인)
 
-**Google Cloud x Solana AI Agentic Hackathon 2026**
+**Google Cloud x Solana AI Agentic Hackathon 2026 제출작**
 
-[문제](#-문제) · [해결책](#-해결책) · [검증 상태](#-검증-완료된-핵심-파이프라인) · [아키텍처](#%EF%B8%8F-아키텍처) · [기술 스택](#%EF%B8%8F-기술-스택) · [실행 방법](#-로컬-실행-방법) · [팀](#-팀)
+[문제](#-문제) · [해결책](#-해결책) · [비즈니스 모델](#-비즈니스-모델) · [검증 상태](#-검증-완료된-핵심-파이프라인) · [아키텍처](#%EF%B8%8F-아키텍처) · [기술 스택](#%EF%B8%8F-기술-스택) · [실행 방법](#-로컬-실행-방법) · [팀](#-팀)
+
+</div>
 
 <br>
 
@@ -50,7 +52,7 @@ FairQueue는 유저가 조건과 함께 결제 예상 금액을 **온체인에 �
 
 <br>
 
-## 비즈니스 모델
+## 💼 비즈니스 모델
 
 FairQueue는 결제·에스크로를 직접 운영하는 주체가 아니라, **PG사가 이미 보유한 라이선스와 인프라 위에 얹히는 자동화 솔루션 레이어**입니다. 라이선스가 필요한 자금 관리·규제 준수는 PG사가 그대로 수행하고, FairQueue는 AI 기반 조건 판단과 정산 트리거만 제공합니다.
 
@@ -84,7 +86,7 @@ FairQueue는 결제·에스크로를 직접 운영하는 주체가 아니라, **
 
 <br>
 
-## 검증 완료된 핵심 파이프라인
+## 🟢 검증 완료된 핵심 파이프라인
 
 아래 흐름은 실제 Solana Devnet 트랜잭션, 실제 Gemini API 호출, 실제 백엔드 API 통신으로 end-to-end 검증되었습니다.
 
@@ -96,9 +98,44 @@ FairQueue는 결제·에스크로를 직접 운영하는 주체가 아니라, **
 | Gemini 판단 + 결정론적 재검증 | Gemini가 제안하고, 별도의 결정론적 검증 로직이 조건 충족 여부를 한 번 더 확인 후 실행 |
 | 조건별 정산/환불 | 조건 충족 시 `release`, 조건 불충족/매진 시 `refund`로 정확히 분기 |
 | 데모 대시보드 | 성공 케이스와 환불 케이스를 UI에서 실행하고 Tx Hash를 Explorer로 확인 |
-| 부정 패턴 탐지 (PoC) | 요청 로그 패턴을 분석해 매크로/다중 계정 의심 여부를 판정하는 개념 검증 |
+| 부정 패턴 탐지 (PoC) | 요청 로그 패턴을 분석해 매크로/다중 계정 의심 여부를 판정하는 개념 증명 |
 
 세 가지 핵심 시나리오(1차 확보 성공 / 대안으로 확보 성공 / 전량 매진 후 환불) 모두 실제 Devnet에서 트랜잭션 서명·전송·확정까지 재현 가능하게 실행됩니다.
+
+### 📸 실행 결과 스크린샷
+
+<table>
+<tr>
+<td align="center" width="50%">
+
+**시나리오 1 — 좌석 확보 성공 (SETTLE)**
+
+<img src="docs/images/scenario1_settle.png" alt="시나리오 1: 좌석 확보 성공 (SETTLE)" width="100%">
+
+희망 좌석 등급(R석) 및 수량 조건을 만족하는 좌석 확보 → 에스크로 예치 → `SETTLE` 판정 → 온체인 정산 완료
+
+</td>
+<td align="center" width="50%">
+
+**시나리오 2 — 매진, 대안 없음 (REFUND)**
+
+<img src="docs/images/scenario2_refund.png" alt="시나리오 2: 매진, 대안 없음 (REFUND)" width="100%">
+
+허용 좌석 등급(R석)이 전 좌석 매진, 대체 가능한 좌석도 없어 `REFUND` 판정 → 온체인 환불 완료
+
+</td>
+</tr>
+</table>
+
+**실제 Settle API 호출 (`curl` → `settle-server.js`)**
+
+<p align="center">
+<img src="docs/images/escrow_real_call.png" alt="에스크로 실제 API 호출 로그" width="90%">
+</p>
+
+`curl`로 `/settle` 엔드포인트에 유저 조건(`primary`, `fallback_rules`)과 제안 좌석(`offered_seat`)을 전달하면, 정산 서버가 이를 파싱해 `SETTLE_PRIMARY` 판정과 함께 예치(`fund_tx`)·정산(`settle_tx`)·잔액 반환(`change_tx`) 트랜잭션 해시를 Explorer 링크와 함께 반환합니다.
+
+<br>
 
 검증된 Anchor Program ID:
 
@@ -278,6 +315,7 @@ fairqueue/
 ├── dashboard/
 │   └── index.html           # 데모 대시보드
 ├── docs/
+│   ├── images/               # README용 스크린샷
 │   ├── PLATFORM_SIM_API.md  # 플랫폼 시뮬레이터 API 문서
 │   └── PRODUCT_INTRO.md     # 프로덕트 소개서
 └── README.md
@@ -312,27 +350,6 @@ fairqueue/
 | **박세은** | 대기열 시스템 · 프론트엔드 | [@seeun68](https://github.com/seeun68) |
 
 이화여자대학교 데이터사이언스학과
-
-</div>
-
-<br>
-
-## License
-
-MIT
-
-## Team 
-
-**Team Tickety**
-
-<div align="center">
-
-
-
-| 이름 | 역할 |
-|:---:|:---|
-| **손시영 (Siyeong Son)** | Gemini 판단 로직 · 결정론적 검증 레이어 · 에스크로 로직 · API 서버 · 파이프라인 통합 |
-| **박세은 (Park Seeun)** | 대기열/좌석 상태 관리 서버 · 프론트엔드/대시보드 · 데모 영상 |
 
 </div>
 
