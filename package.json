@@ -4,6 +4,7 @@
   "description": "\\# FairQueue",
   "main": "index.js",
   "scripts": {
+    "start": "node platform-sim/server.js",
     "platform": "node platform-sim/server.js",
     "settle": "node agent/settle-server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
