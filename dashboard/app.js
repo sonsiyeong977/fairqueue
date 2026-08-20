@@ -890,11 +890,11 @@ async function runDemo(scenarioName) {
 
     log("사용자 조건을 공식 대기열에 등록하고 예치 가능 상태를 생성했습니다.");
     const queue = await post("/queue/join", { event: EVENT_NAME, user_id: userId, conditions });
-    await animateWaitingAhead([124, 119, 114, 108, 101, 95, 88, 80, 73, 66], 760);
+    await animateWaitingAhead([124, 119, 114, 108, 101, 95, 88, 80, 73, 66], 1100);
     renderSteps(3);
 
     log("공식 대기열 순번이 도달해 좌석 Offer 검증 단계로 전환했습니다.");
-    await animateWaitingAhead([58, 51, 45, 38, 32, 26, 20, 15, 11, 7, 4, 2, 1], 760);
+    await animateWaitingAhead([58, 51, 45, 38, 32, 26, 20, 15, 11, 7, 4, 2, 1], 1100);
     await post("/queue/advance", { event: EVENT_NAME, count: queue.position || 1 });
     $("waitingAhead").textContent = "1명";
     renderSteps(4);
