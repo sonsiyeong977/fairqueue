@@ -13,7 +13,7 @@ app.use(express.json());
 const PORT = Number(process.env.PORT || 4000);
 const CLUSTER = process.env.SOLANA_CLUSTER || "devnet";
 const RPC_URL = process.env.SOLANA_RPC_URL || clusterApiUrl(CLUSTER);
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const connection = new Connection(RPC_URL, "confirmed");

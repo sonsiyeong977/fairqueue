@@ -13,7 +13,7 @@ const TURN_INTERVAL_MS = Number(process.env.TURN_INTERVAL_MS || 8000);
 const HOLD_TTL_MS = Number(process.env.HOLD_TTL_MS || 60_000);
 const SETTLE_SERVER_URL = process.env.SETTLE_SERVER_URL || "http://localhost:4000";
 const SETTLE_API_KEY = process.env.SETTLE_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
 
 const defaultEventName = "IU Concert";
