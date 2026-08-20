@@ -35,12 +35,12 @@
           </table>
           <div class="venue-map" id="seatMap" aria-label="공연장 좌석 구역">
             <div class="stage">STAGE</div>
-            <div class="seat-zone vip" data-grade="VIP">VIP</div>
-            <div class="seat-zone r left" data-grade="R">R</div>
-            <div class="seat-zone r right" data-grade="R">R</div>
-            <div class="seat-zone s left" data-grade="S">S</div>
-            <div class="seat-zone s center" data-grade="S">S</div>
-            <div class="seat-zone s right" data-grade="S">S</div>
+            <div class="seat-zone vip" data-grade="VIP" data-zone="VIP-A">VIP</div>
+            <div class="seat-zone r left" data-grade="R" data-zone="R-A">R</div>
+            <div class="seat-zone r right" data-grade="R" data-zone="R-B">R</div>
+            <div class="seat-zone s left" data-grade="S" data-zone="S-A">S</div>
+            <div class="seat-zone s center" data-grade="S" data-zone="S-B">S</div>
+            <div class="seat-zone s right" data-grade="S" data-zone="S-C">S</div>
           </div>
         </section>
 
@@ -180,13 +180,15 @@
             </div>
             <div class="allocation-map" id="resultSeatMap" aria-label="배정 좌석 구역">
               <div class="stage">STAGE</div>
-              <div class="seat-zone vip" data-grade="VIP">VIP</div>
-              <div class="seat-zone r left" data-grade="R">R</div>
-              <div class="seat-zone r right" data-grade="R">R</div>
-              <div class="seat-zone s left" data-grade="S">S</div>
-              <div class="seat-zone s center" data-grade="S">S</div>
-              <div class="seat-zone s right" data-grade="S">S</div>
+              <div class="seat-zone vip" data-grade="VIP" data-zone="VIP-A">VIP</div>
+              <div class="seat-zone r left" data-grade="R" data-zone="R-A">R</div>
+              <div class="seat-zone r right" data-grade="R" data-zone="R-B">R</div>
+              <div class="seat-zone s left" data-grade="S" data-zone="S-A">S</div>
+              <div class="seat-zone s center" data-grade="S" data-zone="S-B">S</div>
+              <div class="seat-zone s right" data-grade="S" data-zone="S-C">S</div>
             </div>
+            <button class="secondary-button seat-detail-button hidden" id="seatDetailBtn" type="button">좌석 확인하기</button>
+            <div class="seat-detail-panel hidden" id="seatDetailPanel"></div>
             <div class="reason-panel" id="reasonPanel">조건을 제출하면 공식 대기열과 온체인 정산 결과가 표시됩니다.</div>
           </section>
 

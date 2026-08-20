@@ -12,6 +12,7 @@ const state = {
   parseRequestSeq: 0,
   selectedGrade: null,
   resultRefund: false,
+  allocatedSeats: [],
 };
 
 const scenarios = {
@@ -426,6 +427,7 @@ function showBooking() {
   $("progressView").classList.remove("hidden");
   $("progressView").classList.remove("visible");
   $("progressView").classList.remove("queue-only");
+  $("progressView").classList.remove("final-result");
   $("bookingView").classList.remove("hidden");
   showUserView(false);
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -468,6 +470,7 @@ function renderSteps(doneCount = 0, finalLabel = "Release/Refund") {
 function renderProgressPending(message) {
   showProgress();
   $("progressView").classList.add("queue-only");
+  $("progressView").classList.remove("final-result");
   renderSteps(1);
   $("queueStatus").textContent = "RUNNING";
   $("queueStatus").className = "status-chip warning";
@@ -486,7 +489,9 @@ function renderProgressPending(message) {
   setTxLink("settleTx", null, "settle_tx 대기 중");
   state.selectedGrade = null;
   state.resultRefund = false;
+  state.allocatedSeats = [];
   paintSeatMap("resultSeatMap");
+  renderSeatDetail(false);
 }
 
 function sleep(ms) {
@@ -511,16 +516,24 @@ function paintSeatMap(containerId, selectedGrade = null, refundMode = false) {
   const container = $(containerId);
   if (!container) return;
   const seats = state.event?.seats || state.activeSeatRows || [];
+  const zonesByGrade = [...container.querySelectorAll(".seat-zone")].reduce((acc, zone) => {
+    acc[zone.dataset.grade] = [...(acc[zone.dataset.grade] || []), zone];
+    return acc;
+  }, {});
 
   container.querySelectorAll(".seat-zone").forEach((zone) => {
     const grade = zone.dataset.grade;
     const seat = seats.find((row) => row.grade === grade);
-    const available = Number(seat?.available_count ?? seat?.count ?? 0);
+    const totalAvailable = Number(seat?.available_count ?? seat?.count ?? 0);
+    const gradeZones = zonesByGrade[grade] || [zone];
+    const zoneIndex = gradeZones.indexOf(zone);
+    const base = Math.floor(totalAvailable / gradeZones.length);
+    const available = base + (zoneIndex < totalAvailable % gradeZones.length ? 1 : 0);
     zone.classList.toggle("available", available > 0);
     zone.classList.toggle("sold-out", available <= 0);
     zone.classList.toggle("selected", Boolean(selectedGrade && grade === selectedGrade && !refundMode));
     zone.classList.toggle("refund-muted", Boolean(refundMode));
-    zone.innerHTML = `<strong>${grade}</strong><span>${available > 0 ? `잔여 ${available}` : "매진"}</span>`;
+    zone.innerHTML = `<strong>${zone.dataset.zone || grade}</strong><span>${available > 0 ? `잔여 ${available}` : "매진"}</span>`;
   });
 }
 
@@ -539,6 +552,68 @@ function renderSeats() {
     .join("");
   paintSeatMap("seatMap");
   paintSeatMap("resultSeatMap", state.selectedGrade, state.resultRefund);
+}
+
+function zoneNamesForGrade(grade) {
+  if (grade === "VIP") return ["VIP-A"];
+  if (grade === "R") return ["R-A", "R-B"];
+  if (grade === "S") return ["S-A", "S-B", "S-C"];
+  return [`${grade}-A`];
+}
+
+function buildAllocatedSeats(grade, quantity) {
+  const zones = zoneNamesForGrade(grade);
+  return Array.from({ length: quantity }, (_, index) => {
+    const zone = zones[index % zones.length];
+    const row = String.fromCharCode(65 + Math.floor(index / Math.max(zones.length, 1)));
+    const number = String(index + 1).padStart(2, "0");
+    return { zone, label: `${zone} ${row}열 ${number}` };
+  });
+}
+
+function renderSeatDetail(open = false) {
+  const button = $("seatDetailBtn");
+  const panel = $("seatDetailPanel");
+  if (!button || !panel) return;
+
+  const hasSeats = state.allocatedSeats.length > 0 && !state.resultRefund;
+  button.classList.toggle("hidden", !hasSeats);
+  panel.classList.toggle("hidden", !hasSeats || !open);
+
+  if (!hasSeats) {
+    panel.innerHTML = "";
+    return;
+  }
+
+  const grade = state.selectedGrade;
+  const zones = zoneNamesForGrade(grade);
+  panel.innerHTML = `
+    <div class="seat-detail-header">
+      <span>${grade}석 상세 좌석</span>
+      <strong>${state.allocatedSeats.length}매</strong>
+    </div>
+    <div class="grape-map">
+      ${zones
+        .map(
+          (zone) => `
+            <section>
+              <p>${zone}</p>
+              <div class="grape-row">
+                ${Array.from({ length: 12 }, (_, index) => {
+                  const seatNo = index + 1;
+                  const allocated = state.allocatedSeats.some((seat) => seat.zone === zone && seat.label.endsWith(String(seatNo).padStart(2, "0")));
+                  return `<span class="grape-seat${allocated ? " selected" : ""}" title="${zone} ${String(seatNo).padStart(2, "0")}">${seatNo}</span>`;
+                }).join("")}
+              </div>
+            </section>
+          `
+        )
+        .join("")}
+    </div>
+    <div class="seat-list">
+      ${state.allocatedSeats.map((seat) => `<span>${seat.label}</span>`).join("")}
+    </div>
+  `;
 }
 
 async function refreshEvents() {
@@ -695,6 +770,7 @@ async function resetDemoState() {
 
 function renderResult(rawPayload) {
   $("progressView").classList.remove("queue-only");
+  $("progressView").classList.add("final-result");
   const result = normalizeDemoResult(rawPayload);
   const isRefund = result.decision === "REFUND" || Boolean(result.refund);
   const isFallback = result.decision === "SETTLE_FALLBACK" || result.offer?.match_type === "FALLBACK";
@@ -721,7 +797,9 @@ function renderResult(rawPayload) {
   $("assignmentCard").style.borderTopColor = isRefund ? "#a92a23" : "#13b96d";
   state.selectedGrade = grade || null;
   state.resultRefund = isRefund;
+  state.allocatedSeats = isRefund || !grade ? [] : buildAllocatedSeats(grade, quantity);
   paintSeatMap("resultSeatMap", grade, isRefund);
+  renderSeatDetail(false);
 
   if (isRefund) {
     $("reasonPanel").className = "reason-panel refund";
@@ -804,6 +882,9 @@ async function runDemo(scenarioName) {
     await refreshEvents();
   } catch (error) {
     $("progressView").classList.remove("queue-only");
+    $("progressView").classList.add("final-result");
+    state.allocatedSeats = [];
+    renderSeatDetail(false);
     $("queueStatus").textContent = "ERROR";
     $("queueStatus").className = "status-chip warning";
     $("queueHeadline").textContent = "실행 실패";
@@ -833,6 +914,14 @@ function bind() {
   $("resetBtn").addEventListener("click", showBooking);
   $("clearLogBtn").addEventListener("click", () => {
     $("eventLog").innerHTML = "";
+  });
+  $("seatDetailBtn")?.addEventListener("click", () => {
+    const isOpen = !$("seatDetailPanel").classList.contains("hidden");
+    renderSeatDetail(!isOpen);
+  });
+  $("resultSeatMap")?.addEventListener("click", (event) => {
+    const zone = event.target.closest(".seat-zone.selected");
+    if (zone) renderSeatDetail(true);
   });
 
   ["primaryGrade", "fallbackGrade", "maxPrice", "fallbackPrice", "seatCount"].forEach((id) => {
