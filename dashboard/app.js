@@ -111,7 +111,6 @@ function extractTotalBudget(text) {
 
 function extractFallbackBudget(text) {
   const fallbackPart = fallbackTextPart(text);
-  if (!fallbackPart) return null;
 
   const patterns = [
     /(?:대안\s*좌석|R석|S석|VIP석)[^.!?。]{0,30}(?:경우|때)[^0-9]{0,16}(\d[\d,]*)\s*(만원|원)/,
@@ -124,7 +123,7 @@ function extractFallbackBudget(text) {
     if (match) return priceToKrw(match[1], match[2]);
   }
 
-  return extractTotalBudget(fallbackPart);
+  return fallbackPart ? extractTotalBudget(fallbackPart) : null;
 }
 
 function gradeMentions(text) {
@@ -132,7 +131,7 @@ function gradeMentions(text) {
 }
 
 function fallbackTextPart(text) {
-  const parts = text.split(/없으면|안되면|안 되면|못잡으면|못 잡으면|불가능하면|대안|차선/);
+  const parts = text.split(/없으면|안되면|안 되면|안될 경우|안 될 경우|못잡으면|못 잡으면|불가능하면|대안|차선/);
   return parts.slice(1).join(" ");
 }
 
@@ -237,13 +236,19 @@ async function handleParseConditionClick() {
     return;
   }
 
-  applyParsedCondition(parseNaturalPrompt(text), "pending");
+  applyParsedCondition(parseNaturalPrompt(text), "fallback");
+  $("parsingStatus").textContent = "AGREED & PARSED";
+  $("parsingStatus").className = "status-chip success";
   $("parseConditionBtn").disabled = true;
-  try {
-    await parseConditionWithGemini(text, requestSeq);
-  } finally {
+
+  window.setTimeout(() => {
     $("parseConditionBtn").disabled = false;
-  }
+  }, 900);
+
+  parseConditionWithGemini(text, requestSeq).catch(() => {
+    if (requestSeq !== state.parseRequestSeq) return;
+    applyParsedCondition(parseNaturalPrompt(text), "fallback");
+  });
 }
 
 function renderParsedGrid() {
@@ -461,7 +466,7 @@ function renderProgressPending(message) {
   $("queueStatus").textContent = "RUNNING";
   $("queueStatus").className = "status-chip warning";
   $("queueHeadline").textContent = "처리 중";
-  $("waitingAhead").textContent = "142명";
+  $("waitingAhead").textContent = "128명";
   $("progressState").textContent = "진행 중";
   $("matchBadge").textContent = "WAITING";
   $("matchBadge").className = "status-chip warning";
@@ -475,10 +480,16 @@ function renderProgressPending(message) {
   setTxLink("settleTx", null, "settle_tx 대기 중");
 }
 
-function setWaitingAheadLater(value, delayMs) {
-  window.setTimeout(() => {
-    if (state.running) $("waitingAhead").textContent = value;
-  }, delayMs);
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function animateWaitingAhead(values, delayMs = 280) {
+  for (const value of values) {
+    if (!state.running) return;
+    $("waitingAhead").textContent = `${value}명`;
+    await sleep(delayMs);
+  }
 }
 
 function seatStatusLabel(seat) {
@@ -724,8 +735,6 @@ async function runDemo(scenarioName) {
   setButtonsDisabled(true);
   if (scenarioName !== "custom") applyScenarioDefaults(scenarioName);
   renderProgressPending(`${scenarioLabel(scenarioName)} 케이스를 실행하고 있습니다.`);
-  setWaitingAheadLater("87명", 600);
-  setWaitingAheadLater("24명", 1300);
 
   try {
     const userId = `${$("userId").value}-${Date.now().toString(36)}`;
@@ -748,10 +757,11 @@ async function runDemo(scenarioName) {
 
     log("사용자 조건을 공식 대기열에 등록하고 예치 가능 상태를 생성했습니다.");
     const queue = await post("/queue/join", { event: EVENT_NAME, user_id: userId, conditions });
-    $("waitingAhead").textContent = `${Math.max((queue.position || 1) - 1, 0)}명`;
+    await animateWaitingAhead([96, 74, 51, 33]);
     renderSteps(3);
 
     log("공식 대기열 순번이 도달해 좌석 Offer 검증 단계로 전환했습니다.");
+    await animateWaitingAhead([21, 12, 6, 2, 0], 240);
     await post("/queue/advance", { event: EVENT_NAME, count: queue.position || 1 });
     $("waitingAhead").textContent = "0명";
     renderSteps(4);

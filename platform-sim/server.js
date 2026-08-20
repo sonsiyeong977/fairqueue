@@ -83,7 +83,6 @@ function extractTotalBudget(text) {
 
 function extractFallbackBudget(text) {
   const fallbackPart = fallbackTextPart(text);
-  if (!fallbackPart) return null;
 
   const patterns = [
     /(?:대안\s*좌석|R석|S석|VIP석)[^.!?。]{0,30}(?:경우|때)[^0-9]{0,16}(\d[\d,]*)\s*(만원|원)/,
@@ -96,7 +95,7 @@ function extractFallbackBudget(text) {
     if (match) return priceToKrw(match[1], match[2]);
   }
 
-  return extractTotalBudget(fallbackPart);
+  return fallbackPart ? extractTotalBudget(fallbackPart) : null;
 }
 
 function gradeMentions(text) {
@@ -104,7 +103,7 @@ function gradeMentions(text) {
 }
 
 function fallbackTextPart(text) {
-  const parts = text.split(/없으면|안되면|안 되면|못잡으면|못 잡으면|불가능하면|대안|차선/);
+  const parts = text.split(/없으면|안되면|안 되면|안될 경우|안 될 경우|못잡으면|못 잡으면|불가능하면|대안|차선/);
   return parts.slice(1).join(" ");
 }
 
