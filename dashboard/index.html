@@ -211,29 +211,6 @@
           </div>
         </div>
 
-        <section class="card scenario-control-card">
-          <div>
-            <p class="section-kicker">Inventory Control</p>
-            <h2>좌석 재고 상태 관리</h2>
-            <p>운영자가 판매 상황에 맞춰 재고 상태를 조정하고 정산 흐름을 점검합니다.</p>
-          </div>
-          <div class="scenario-actions">
-            <button class="ghost-button" id="demoResetBtn" type="button">상태 초기화</button>
-            <button class="ghost-button" id="successDemoBtn" type="button">
-              <span class="signal success"></span>
-              정상 재고
-            </button>
-            <button class="ghost-button" id="fallbackDemoBtn" type="button">
-              <span class="signal neutral"></span>
-              대안 재고
-            </button>
-            <button class="ghost-button" id="refundDemoBtn" type="button">
-              <span class="signal danger"></span>
-              전량 매진
-            </button>
-          </div>
-        </section>
-
         <section class="operator-kpis">
           <article class="kpi-card">
             <span>총 처리 건수</span>
@@ -255,16 +232,12 @@
             <span>확정 거래액</span>
             <strong id="operatorTotalAmount">0원</strong>
           </article>
-          <article class="kpi-card">
-            <span>FairQueue 수수료 수익</span>
-            <strong id="operatorFeeRevenue">0원</strong>
-          </article>
         </section>
 
         <section class="card operator-log-card">
           <div class="card-title compact">
             <h2>최근 거래 로그</h2>
-            <span class="status-chip success">1.5% TAKE RATE</span>
+            <span class="status-chip success">LIVE SETTLEMENT</span>
           </div>
           <table class="operator-table">
             <thead>
@@ -274,13 +247,12 @@
                 <th>좌석</th>
                 <th>수량</th>
                 <th>거래액</th>
-                <th>수수료</th>
                 <th>Tx Hash</th>
               </tr>
             </thead>
             <tbody id="operatorLogRows">
               <tr>
-                <td colspan="7">아직 처리된 거래가 없습니다.</td>
+                <td colspan="6">아직 처리된 거래가 없습니다.</td>
               </tr>
             </tbody>
           </table>

@@ -179,14 +179,32 @@ function applyParsedCondition(parsed, source = "gemini") {
   $("maxPrice").value = primaryPrice;
   $("fallbackPrice").value = fallbackGrade ? fallbackPrice : "";
   $("seatCount").value = seatCount ? Math.min(Math.max(Number(seatCount), 1), 5) : "";
-  $("geminiMessage").textContent =
-    source === "gemini"
-      ? "Gemini가 자연어 요청을 좌석 우선순위, 가격 상한, 수량 조건으로 구조화했습니다."
-      : source === "pending"
-        ? "Gemini가 요청을 해석하고 있습니다."
-        : "요청을 좌석 우선순위, 가격 상한, 수량 조건으로 정리했습니다.";
+  if (source === "gemini") {
+    $("geminiMessage").textContent = "Gemini가 자연어 요청을 좌석 우선순위, 가격 상한, 수량 조건으로 구조화했습니다.";
+  } else if (source === "pending") {
+    $("geminiMessage").textContent = "Gemini가 요청을 해석하고 있습니다.";
+  } else {
+    $("geminiMessage").textContent = "요청을 좌석 우선순위, 가격 상한, 수량 조건으로 정리했습니다.";
+  }
 
   renderConditionSummary();
+}
+
+function applyQuietParsedCondition(parsed) {
+  const primary = parsed.primary || {};
+  const fallback = Array.isArray(parsed.fallback_rules) ? parsed.fallback_rules[0] : null;
+
+  $("primaryGrade").value = primary.grade || parsed.primaryGrade || "";
+  $("fallbackGrade").value = fallback?.grade || parsed.fallbackGrade || "";
+  $("maxPrice").value = primary.max_price_krw || parsed.primaryPrice || "";
+  $("fallbackPrice").value = fallback?.max_price_krw || parsed.fallbackPrice || "";
+  $("seatCount").value = parsed.seat_count || parsed.seatCount ? Math.min(Math.max(Number(parsed.seat_count || parsed.seatCount), 1), 5) : "";
+  $("conditionSummary").innerHTML = "";
+  $("parsedGrid").innerHTML = "";
+  $("geminiInterpretation").classList.add("hidden");
+  $("parsedGrid").classList.add("hidden");
+  $("parsingStatus").textContent = "입력 중";
+  $("parsingStatus").className = "status-chip";
 }
 
 async function parseConditionWithGemini(text, requestSeq) {
@@ -380,9 +398,10 @@ function log(message) {
 
 function setButtonsDisabled(disabled) {
   state.running = disabled;
-  $("successDemoBtn").disabled = disabled;
-  $("fallbackDemoBtn").disabled = disabled;
-  $("refundDemoBtn").disabled = disabled;
+  if ($("successDemoBtn")) $("successDemoBtn").disabled = disabled;
+  if ($("fallbackDemoBtn")) $("fallbackDemoBtn").disabled = disabled;
+  if ($("refundDemoBtn")) $("refundDemoBtn").disabled = disabled;
+  if ($("demoResetBtn")) $("demoResetBtn").disabled = disabled;
   document.querySelector(".primary-button").disabled = disabled;
 }
 
@@ -442,7 +461,7 @@ function renderProgressPending(message) {
   $("queueStatus").textContent = "RUNNING";
   $("queueStatus").className = "status-chip warning";
   $("queueHeadline").textContent = "처리 중";
-  $("waitingAhead").textContent = "-";
+  $("waitingAhead").textContent = "142명";
   $("progressState").textContent = "진행 중";
   $("matchBadge").textContent = "WAITING";
   $("matchBadge").className = "status-chip warning";
@@ -454,6 +473,12 @@ function renderProgressPending(message) {
   $("settleAmount").textContent = "-";
   setTxLink("fundTx", null, "fund_tx 대기 중");
   setTxLink("settleTx", null, "settle_tx 대기 중");
+}
+
+function setWaitingAheadLater(value, delayMs) {
+  window.setTimeout(() => {
+    if (state.running) $("waitingAhead").textContent = value;
+  }, delayMs);
 }
 
 function seatStatusLabel(seat) {
@@ -580,14 +605,12 @@ function renderOperatorView() {
   const fallbackSettled = transactions.filter((item) => item.decision === "SETTLE_FALLBACK");
   const refunds = transactions.filter((item) => item.decision.includes("REFUND"));
   const settledAmount = settled.reduce((sum, item) => sum + item.amount, 0);
-  const feeRevenue = settled.reduce((sum, item) => sum + item.fee, 0);
 
   $("operatorProcessedCount").textContent = formatCount(transactions.length);
   $("operatorPrimarySuccessCount").textContent = formatCount(primarySettled.length);
   $("operatorFallbackSuccessCount").textContent = formatCount(fallbackSettled.length);
   $("operatorRefundCount").textContent = formatCount(refunds.length);
   $("operatorTotalAmount").textContent = formatKrw(settledAmount);
-  $("operatorFeeRevenue").textContent = formatKrw(feeRevenue);
 
   $("operatorLogRows").innerHTML = transactions.length
     ? transactions
@@ -604,13 +627,12 @@ function renderOperatorView() {
               <td>${item.grade}</td>
               <td>${item.quantity}매</td>
               <td>${isRefund ? "환불 처리" : formatKrw(item.amount)}</td>
-              <td>${isRefund ? "0원" : formatKrw(item.fee)}</td>
               <td>${txCell}</td>
             </tr>
           `;
         })
         .join("")
-    : `<tr><td colspan="7">아직 처리된 거래가 없습니다.</td></tr>`;
+    : `<tr><td colspan="6">아직 처리된 거래가 없습니다.</td></tr>`;
 }
 
 async function resetDemoState() {
@@ -702,6 +724,8 @@ async function runDemo(scenarioName) {
   setButtonsDisabled(true);
   if (scenarioName !== "custom") applyScenarioDefaults(scenarioName);
   renderProgressPending(`${scenarioLabel(scenarioName)} 케이스를 실행하고 있습니다.`);
+  setWaitingAheadLater("87명", 600);
+  setWaitingAheadLater("24명", 1300);
 
   try {
     const userId = `${$("userId").value}-${Date.now().toString(36)}`;
@@ -724,10 +748,12 @@ async function runDemo(scenarioName) {
 
     log("사용자 조건을 공식 대기열에 등록하고 예치 가능 상태를 생성했습니다.");
     const queue = await post("/queue/join", { event: EVENT_NAME, user_id: userId, conditions });
+    $("waitingAhead").textContent = `${Math.max((queue.position || 1) - 1, 0)}명`;
     renderSteps(3);
 
     log("공식 대기열 순번이 도달해 좌석 Offer 검증 단계로 전환했습니다.");
     await post("/queue/advance", { event: EVENT_NAME, count: queue.position || 1 });
+    $("waitingAhead").textContent = "0명";
     renderSteps(4);
 
     log("좌석 Offer를 조건과 대조하고 Anchor escrow 정산을 요청했습니다.");
@@ -752,10 +778,10 @@ function bind() {
     event.preventDefault();
     runDemo("custom");
   });
-  $("successDemoBtn").addEventListener("click", () => runDemo("success"));
-  $("fallbackDemoBtn").addEventListener("click", () => runDemo("fallback"));
-  $("refundDemoBtn").addEventListener("click", () => runDemo("refund"));
-  $("demoResetBtn").addEventListener("click", resetDemoState);
+  $("successDemoBtn")?.addEventListener("click", () => runDemo("success"));
+  $("fallbackDemoBtn")?.addEventListener("click", () => runDemo("fallback"));
+  $("refundDemoBtn")?.addEventListener("click", () => runDemo("refund"));
+  $("demoResetBtn")?.addEventListener("click", resetDemoState);
   $("userViewBtn").addEventListener("click", () => {
     if ($("progressView").classList.contains("visible")) showProgress();
     else showBooking();
@@ -775,7 +801,7 @@ function bind() {
     clearTimeout(state.parseTimer);
     const text = $("naturalPrompt").value.trim();
     if (!text) applyParsedCondition({}, "fallback");
-    else applyParsedCondition(parseNaturalPrompt(text), "pending");
+    else applyQuietParsedCondition(parseNaturalPrompt(text));
   });
 }
 
