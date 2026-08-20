@@ -563,11 +563,12 @@ function zoneNamesForGrade(grade) {
 
 function buildAllocatedSeats(grade, quantity) {
   const zones = zoneNamesForGrade(grade);
+  const zone = zones[0];
   return Array.from({ length: quantity }, (_, index) => {
-    const zone = zones[index % zones.length];
-    const row = String.fromCharCode(65 + Math.floor(index / Math.max(zones.length, 1)));
+    const row = String.fromCharCode(65 + Math.floor(index / 12));
     const number = String(index + 1).padStart(2, "0");
-    return { zone, label: `${zone} ${row}열 ${number}` };
+    const seatNo = (index % 12) + 1;
+    return { zone, row, seatNo, label: `${zone} ${row}열 ${String(seatNo).padStart(2, "0")}` };
   });
 }
 
@@ -601,7 +602,7 @@ function renderSeatDetail(open = false) {
               <div class="grape-row">
                 ${Array.from({ length: 12 }, (_, index) => {
                   const seatNo = index + 1;
-                  const allocated = state.allocatedSeats.some((seat) => seat.zone === zone && seat.label.endsWith(String(seatNo).padStart(2, "0")));
+                  const allocated = state.allocatedSeats.some((seat) => seat.zone === zone && seat.row === "A" && seat.seatNo === seatNo);
                   return `<span class="grape-seat${allocated ? " selected" : ""}" title="${zone} ${String(seatNo).padStart(2, "0")}">${seatNo}</span>`;
                 }).join("")}
               </div>
