@@ -793,6 +793,15 @@ pre {
   background: var(--green);
 }
 
+.step.active::before,
+.step.active .step-dot {
+  background: var(--green);
+}
+
+.step.active .step-dot {
+  box-shadow: 0 0 0 6px rgba(19, 185, 109, 0.12);
+}
+
 .step-dot {
   z-index: 1;
   display: grid;

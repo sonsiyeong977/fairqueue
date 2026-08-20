@@ -457,15 +457,16 @@ function showOperatorView() {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-function renderSteps(doneCount = 0, finalLabel = "Release/Refund") {
+function renderSteps(doneCount = 0, finalLabel = "Release/Refund", activeIndex = null) {
   $("stepper").innerHTML = steps
     .map((step, index) => {
       const label = index === steps.length - 1 ? finalLabel : step;
       const done = index < doneCount ? " done" : "";
-      return `<div class="step${done}"><span class="step-dot">${index < doneCount ? "✓" : index + 1}</span><span>${label}</span></div>`;
+      const active = activeIndex === index && index >= doneCount ? " active" : "";
+      return `<div class="step${done}${active}"><span class="step-dot">${index < doneCount ? "✓" : index + 1}</span><span>${label}</span></div>`;
     })
     .join("");
-  const current = Math.min(Math.max(doneCount, 0), steps.length - 1);
+  const current = activeIndex ?? Math.min(Math.max(doneCount, 0), steps.length - 1);
   $("currentStepKicker").textContent = doneCount >= steps.length ? finalLabel : steps[current];
 }
 
@@ -473,7 +474,7 @@ function renderProgressPending(message) {
   showProgress();
   $("progressView").classList.add("queue-only");
   $("progressView").classList.remove("final-result");
-  renderSteps(1);
+  renderSteps(2, "Release/Refund", 2);
   $("queueStatus").textContent = "RUNNING";
   $("queueStatus").className = "status-chip warning";
   $("queueHeadline").textContent = "처리 중";
@@ -912,7 +913,7 @@ async function runDemo(scenarioName) {
       log(`${scenarioLabel(scenarioName)} 조건에 맞춰 현재 좌석 재고를 동기화했습니다.`);
       await setScenario(scenarioName);
     }
-    renderSteps(2);
+    renderSteps(2, "Release/Refund", 2);
 
     log("사용자 조건을 공식 대기열에 등록하고 예치 가능 상태를 생성했습니다.");
     const queue = await post("/queue/join", { event: EVENT_NAME, user_id: userId, conditions });
