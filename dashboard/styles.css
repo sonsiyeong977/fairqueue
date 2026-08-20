@@ -229,30 +229,24 @@ h2 {
   gap: 22px;
 }
 
-.gemini-card {
+.booking-flow-card {
   border-top: 3px solid var(--navy);
 }
 
-.gemini-dialog {
-  display: grid;
-  gap: 10px;
-  margin-top: 16px;
-}
-
-.gemini-dialog article {
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfcfd;
-}
-
-.gemini-dialog .gemini-line,
+.gemini-interpretation,
 .parsed-grid {
   border-color: #cbdcf8;
   background: #eef5ff;
 }
 
-.gemini-dialog span {
+.gemini-interpretation {
+  margin-top: 14px;
+  padding: 13px 14px;
+  border: 1px solid #cbdcf8;
+  border-radius: 8px;
+}
+
+.gemini-interpretation span {
   display: block;
   margin-bottom: 6px;
   color: var(--navy);
@@ -262,7 +256,7 @@ h2 {
   letter-spacing: 0.08em;
 }
 
-.gemini-dialog p {
+.gemini-interpretation p {
   color: #26364f;
   line-height: 1.55;
 }
@@ -295,6 +289,20 @@ h2 {
 .condition-card {
   position: sticky;
   top: 18px;
+}
+
+.form-divider {
+  margin: 18px 0 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.form-divider span {
+  color: var(--navy);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .card {

@@ -74,7 +74,6 @@ function renderParsedGrid() {
   const primaryBudget = conditions.primary.max_price_krw * conditions.seat_count;
   const fallbackBudget = fallback ? fallback.max_price_krw * conditions.seat_count : 0;
 
-  $("userUtterance").textContent = $("naturalPrompt").value;
   $("parsedGrid").innerHTML = `
     <div>
       <span>좌석 우선순위</span>
