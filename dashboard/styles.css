@@ -772,7 +772,7 @@ pre {
 }
 
 .progress-view.queue-only .result-grid {
-  grid-template-columns: minmax(360px, 560px);
+  grid-template-columns: minmax(440px, 680px);
   justify-content: center;
 }
 
@@ -782,17 +782,78 @@ pre {
 }
 
 .progress-view.queue-only .queue-card {
-  min-height: 430px;
+  min-height: 540px;
   display: grid;
   align-content: space-between;
+  padding: 34px;
+  border-color: #cdddf3;
+  background:
+    linear-gradient(180deg, #ffffff, #f4f8ff),
+    var(--paper);
 }
 
 .progress-view.queue-only .queue-number {
-  min-height: 210px;
+  min-height: 255px;
 }
 
 .progress-view.queue-only .queue-number strong {
-  font-size: 54px;
+  color: var(--navy);
+  font-size: 64px;
+}
+
+.queue-spinner {
+  display: none;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 14px;
+  border: 4px solid #d8e3f3;
+  border-top-color: var(--navy);
+  border-radius: 999px;
+  animation: spin 1s linear infinite;
+}
+
+.progress-view.queue-only .queue-spinner {
+  display: block;
+}
+
+.queue-progress {
+  display: none;
+  overflow: hidden;
+  height: 10px;
+  margin: 4px 0 22px;
+  border-radius: 999px;
+  background: #dfe7f2;
+}
+
+.progress-view.queue-only .queue-progress {
+  display: block;
+}
+
+.queue-progress span {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--navy), var(--green));
+  animation: queueProgress 2.4s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes queueProgress {
+  0% {
+    transform: translateX(-120%);
+  }
+  55% {
+    transform: translateX(95%);
+  }
+  100% {
+    transform: translateX(245%);
+  }
 }
 
 .progress-view.final-result .result-grid {
@@ -895,6 +956,36 @@ pre {
   display: block;
   margin-top: 7px;
   font-size: 18px;
+}
+
+.progress-view.queue-only .queue-stats {
+  gap: 14px;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.progress-view.queue-only .queue-stats > div {
+  min-height: 104px;
+  display: grid;
+  align-content: center;
+  padding: 18px;
+  border: 1px solid #dbe5f3;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.progress-view.queue-only .queue-stats .waiting-stat {
+  border-color: #bfd4f1;
+  background: #f8fbff;
+}
+
+.progress-view.queue-only .queue-stats .waiting-stat strong {
+  color: var(--navy);
+  font-size: 38px;
+}
+
+.progress-view.queue-only .queue-stats strong {
+  font-size: 24px;
 }
 
 .assignment-card {
