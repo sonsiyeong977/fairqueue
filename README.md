@@ -11,11 +11,9 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Status](https://img.shields.io/badge/Core_Pipeline-Verified_on_Devnet-brightgreen?style=for-the-badge)](#-검증-완료된-핵심-파이프라인)
 
-**Google Cloud x Solana AI Agentic Hackathon 2026 제출작**
+**Google Cloud x Solana AI Agentic Hackathon 2026**
 
 [문제](#-문제) · [해결책](#-해결책) · [검증 상태](#-검증-완료된-핵심-파이프라인) · [아키텍처](#%EF%B8%8F-아키텍처) · [기술 스택](#%EF%B8%8F-기술-스택) · [실행 방법](#-로컬-실행-방법) · [팀](#-팀)
-
-</div>
 
 <br>
 
@@ -31,6 +29,8 @@
 | 짧은 결제 시간 안에 카드 인증 오류·입력 지연으로 구매 기회를 놓치는 경우 발생 | 플랫폼의 **순수 매출 손실** |
 | 매진 후 환불 처리에 시간이 걸리는 경우가 흔함 | CS 부담, 고객 불만 |
 | 매크로/암표 대응 비용 | 지속적인 탐지·차단 리소스 소모 |
+
+문제의 본질은 '대기열 우회'가 아니라, **순번을 정상적으로 받은 이후에 발생하는 실행 속도 격차**입니다. 사람은 순번 이후 수동으로 클릭하다 실패하면 처음부터 다시 시도해야 하지만, 매크로는 이 구간의 클릭을 자동화해 속도에서 유리해집니다. FairQueue는 바로 이 구간 — 순번 이후의 실행 — 을 자동화하여 격차 자체를 없앱니다.
 
 <br>
 
@@ -50,7 +50,41 @@ FairQueue는 유저가 조건과 함께 결제 예상 금액을 **온체인에 �
 
 <br>
 
-## 🟢 검증 완료된 핵심 파이프라인
+## 비즈니스 모델
+
+FairQueue는 결제·에스크로를 직접 운영하는 주체가 아니라, **PG사가 이미 보유한 라이선스와 인프라 위에 얹히는 자동화 솔루션 레이어**입니다. 라이선스가 필요한 자금 관리·규제 준수는 PG사가 그대로 수행하고, FairQueue는 AI 기반 조건 판단과 정산 트리거만 제공합니다.
+
+<div align="center">
+
+| 주체 | 역할 |
+|:---|:---|
+| **PG사** | 라이선스 보유 · 실제 자금 관리 · KYC 등 규제 준수 |
+| **FairQueue** | AI 조건 파싱 · 판단 로직 제공 · 자동 정산 트리거 |
+| **온체인 (Anchor)** | 조건부 거래를 검증 가능하게 만드는 실행 레이어로만 사용 |
+
+</div>
+
+```
+티켓 플랫폼 (공식 순번·좌석 재고·거래 API 제공)
+        ▼
+   FairQueue (조건 파싱·자동 선택·정산)
+        ▼
+결제/정산 파트너 (실제 자금 처리·규제 준수)
+```
+
+**수익 모델**: 정률 수수료가 아닌, 월 처리 트랜잭션 규모에 따른 **구간별 고정 계약 + Volume Discount** 방식입니다. PG사 입장에서 결제 실패·환불 처리·매크로 대응에 드는 기존 비용 대비 예측 가능한 비용으로 도입할 수 있도록 설계했습니다.
+
+| 구간 | 월 계약금 |
+|:---|:---|
+| Starter | 150만원 |
+| Growth | 480만원 |
+| Scale | 별도 협의 (Volume Discount 적용) |
+
+**시장 기회**: 국내 공연 티켓 시장은 약 **₩1.73조** 규모(2025년 기준)이며, 콘서트 중심 고수요 이벤트에서 '순번 이후 자동화' 수요를 우선 공략합니다. Queue-it과 같은 해외 대기열·봇 방어 솔루션이 이미 시장을 형성하고 있으나, FairQueue는 그 다음 병목인 **순번 이후 좌석 자동 실행과 조건부 결제·환불**을 겨냥한다는 점에서 차별화됩니다.
+
+<br>
+
+## 검증 완료된 핵심 파이프라인
 
 아래 흐름은 실제 Solana Devnet 트랜잭션, 실제 Gemini API 호출, 실제 백엔드 API 통신으로 end-to-end 검증되었습니다.
 
@@ -138,13 +172,22 @@ FairQueue의 온체인 정산은 Solana Devnet에 배포된 Anchor 프로그램�
 
 ### ◎ Google Cloud / Gemini
 
-- **자연어 조건 파싱** — 1차 조건과 대안 규칙까지 구조화
-- **근거 있는 1차 판단** — 제안된 좌석과 조건을 비교해 판단 근거(reasoning)를 함께 생성
-- **결정론적 레이어와 분리** — 최종 실행 여부는 별도의 검증 로직이 재확인 (환각 리스크 완화)
+**AI는 결제를 승인하지 않습니다.** Gemini는 사용자와 **조건을 합의**하는 역할까지만 담당하고, 최종 실행 여부는 별도의 결정론적 엔진이 결정합니다.
+
+- **자연어 협상(Negotiation)** — 유저의 자유 형식 요청을 단순 파싱하는 데 그치지 않고, 좌석 등급 간 트레이드오프(가격·매진 가능성·구역)를 제시하며 다회차 대화로 조건을 구체화
+- **구조화된 합의 결과 도출** — 협상 결과를 `primary` + `fallback_rules` 스키마로 확정해 결정론적 엔진에 전달
+- **결정론적 레이어와의 역할 분리** — 최종 실행 여부는 Gemini가 아닌 별도 검증 로직이 실제 조건 데이터로 재확인 (환각 리스크 방어)
 
 </td>
 </tr>
 </table>
+
+> **현재 구현 범위**: 위 AI 파이프라인은 **Gemini Developer API** 기준으로 구현·검증되었습니다. Vertex AI, Cloud Run, Cloud KMS는 상용화 단계에서의 확장 계획이며, 현재 데모에 포함된 기능이 아닙니다 — 없는 기능을 있는 것처럼 표시하지 않습니다.
+>
+> | 구분 | 내용 |
+> |:---|:---|
+> | **현재** | Gemini Developer API 기반 자연어 → 조건 구조화 (구현·검증 완료) |
+> | **상용화 확장 (로드맵)** | Vertex AI(AI 운영·모니터링), Cloud Run(API 확장), Cloud KMS(지갑 키 관리 강화) |
 
 <br>
 
@@ -154,13 +197,13 @@ FairQueue의 온체인 정산은 Solana Devnet에 배포된 Anchor 프로그램�
 
 | 영역 | 기술 |
 |:---|:---|
-| AI | Google Gemini (`gemini-flash-latest`) — 조건 파싱 및 1차 판단 |
+| AI | Google Gemini (`gemini-flash-latest`, Developer API) — 조건 협상 및 1차 판단 |
 | 검증 | 결정론적 정책 엔진 (코드 기반 재검증 레이어) |
 | 결제/온체인 | Solana Devnet, Anchor (Rust), PDA Escrow |
 | Solana Client | `@coral-xyz/anchor`, `@solana/web3.js` |
 | 백엔드 | Node.js, Express |
 | 프론트엔드 | HTML, CSS, JavaScript 기반 데모 대시보드 |
-| 지갑/서명 | Agent keypair 기반 자율 서명 (승인 팝업 없음) |
+| 지갑/서명 | Agent keypair 기반 자율 서명 (승인 팝업 없음) — *상용화 단계에서는 Google Cloud KMS 등 관리형 키 서비스로 전환 예정, 현재는 PoC 수준의 로컬 키페어 기반* |
 
 </div>
 
@@ -242,20 +285,41 @@ fairqueue/
 
 <br>
 
-## 기준 
+## 기준
 
 <div align="center">
 
 | 기준 | 대응 내용 |
 |:---|:---|
 | 혁신성 및 UX | 조건 위임 기반 자동 정산 + 즉시 환불 + 결정론적 검증으로 안전성 확보 |
-| AI 활용도 | Gemini 기반 조건 파싱 · 근거 있는 판단 · 결정론적 레이어와의 역할 분리 |
-| 인프라 연동 | 현재 구현: Solana Devnet + Anchor PDA Escrow / 확장 가능: USDC, Solana Pay |
+| AI 활용도 | Gemini 기반 자연어 협상 · 근거 있는 판단 · 결정론적 레이어와의 역할 분리 |
+| 인프라 연동 | 현재 구현: Solana Devnet + Anchor PDA Escrow, Gemini Developer API / 확장 로드맵: USDC·Solana Pay, Vertex AI·Cloud Run·Cloud KMS |
 | 실제 구동 여부 | 실제 Devnet 트랜잭션과 데모 대시보드로 검증 |
 
 </div>
 
 <br>
+
+## Team
+
+**Team Tickety**
+
+<div align="center">
+
+| 이름 | 역할 | GitHub |
+|:---:|:---|:---:|
+| **손시영** | PM · 백엔드 · AI · 온체인 | [@sonsiyeong977](https://github.com/sonsiyeong977) |
+| **박세은** | 대기열 시스템 · 프론트엔드 | [@seeun68](https://github.com/seeun68) |
+
+이화여자대학교 데이터사이언스학과
+
+</div>
+
+<br>
+
+## License
+
+MIT
 
 ## Team 
 
