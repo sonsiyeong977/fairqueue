@@ -1,7 +1,7 @@
 const PROGRAM_ID = "618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj";
 const EVENT_NAME = "IU Concert";
 const SEAT_PRICES = { VIP: 250000, R: 190000, S: 120000 };
-const ZONE_CAPACITY = { "VIP-A": 6, "R-A": 15, "R-B": 15, "S-A": 15, "S-B": 15, "S-C": 15 };
+const ZONE_CAPACITY = { "VIP-A": 6, "R-A": 24, "R-B": 24, "S-A": 24, "S-B": 24, "S-C": 24 };
 
 const state = {
   event: null,
@@ -20,13 +20,13 @@ const state = {
 const scenarios = {
   success: [
     { grade: "VIP", price_krw: 250000, count: 4 },
-    { grade: "R", price_krw: 190000, count: 30 },
-    { grade: "S", price_krw: 120000, count: 45 },
+    { grade: "R", price_krw: 190000, count: 48 },
+    { grade: "S", price_krw: 120000, count: 72 },
   ],
   fallback: [
     { grade: "VIP", price_krw: 250000, count: 0 },
     { grade: "R", price_krw: 190000, count: 0 },
-    { grade: "S", price_krw: 120000, count: 45 },
+    { grade: "S", price_krw: 120000, count: 72 },
   ],
   refund: [
     { grade: "VIP", price_krw: 250000, count: 0 },
@@ -590,6 +590,47 @@ function buildAllocatedSeats(grade, quantity) {
   });
 }
 
+function grapeRowLayout(capacity) {
+  if (capacity <= 6) return [capacity];
+  if (capacity <= 18) {
+    const first = Math.floor(capacity * 0.45);
+    return [first, capacity - first];
+  }
+  const first = Math.floor(capacity * 0.28);
+  const second = Math.floor(capacity * 0.34);
+  return [first, second, capacity - first - second];
+}
+
+function renderGrapeZone(zone, beforeAllocation) {
+  const capacity = ZONE_CAPACITY[zone] || Math.max(beforeAllocation[zone] || 0, 1);
+  const available = Number(beforeAllocation[zone] || 0);
+  let seatNo = 0;
+
+  return `
+    <section>
+      <p>${zone}<span>${available > 0 ? `잔여 ${available}` : "매진"}</span></p>
+      <div class="grape-arc">
+        ${grapeRowLayout(capacity)
+          .map((count, rowIndex) => {
+            const rowName = String.fromCharCode(65 + rowIndex);
+            return `
+              <div class="grape-row arc-row-${rowIndex + 1}">
+                ${Array.from({ length: count }, () => {
+                  seatNo += 1;
+                  const allocated = state.allocatedSeats.some((seat) => seat.zone === zone && seat.seatNo === seatNo);
+                  const unavailable = seatNo > available && !allocated;
+                  const label = `${zone} ${rowName}열 ${String(seatNo).padStart(2, "0")}`;
+                  return `<span class="grape-seat${allocated ? " selected" : ""}${unavailable ? " unavailable" : ""}" title="${label}">${seatNo}</span>`;
+                }).join("")}
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
 function renderSeatDetail(open = false) {
   const button = $("seatDetailBtn");
   const panel = $("seatDetailPanel");
@@ -613,22 +654,7 @@ function renderSeatDetail(open = false) {
       <strong>${state.allocatedSeats.length}매</strong>
     </div>
     <div class="grape-map">
-      ${zones
-        .map(
-          (zone) => `
-            <section>
-              <p>${zone}</p>
-              <div class="grape-row">
-                ${Array.from({ length: Math.max(beforeAllocation[zone] || 0, state.allocatedSeats.filter((seat) => seat.zone === zone).length) }, (_, index) => {
-                  const seatNo = index + 1;
-                  const allocated = state.allocatedSeats.some((seat) => seat.zone === zone && seat.row === "A" && seat.seatNo === seatNo);
-                  return `<span class="grape-seat${allocated ? " selected" : ""}" title="${zone} ${String(seatNo).padStart(2, "0")}">${seatNo}</span>`;
-                }).join("")}
-              </div>
-            </section>
-          `
-        )
-        .join("")}
+      ${zones.map((zone) => renderGrapeZone(zone, beforeAllocation)).join("")}
     </div>
     <div class="seat-list">
       ${state.allocatedSeats.map((seat) => `<span>${seat.label}</span>`).join("")}
