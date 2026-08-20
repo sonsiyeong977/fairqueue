@@ -13,7 +13,7 @@
   --green-dark: #176748;
   --blue: #155dfc;
   --amber: #b7791f;
-  --shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
 }
 
 * {
@@ -61,7 +61,7 @@ button:disabled {
 .stepper {
   background: var(--paper);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 6px;
   box-shadow: var(--shadow);
 }
 
@@ -70,17 +70,21 @@ button:disabled {
   justify-content: space-between;
   align-items: flex-end;
   gap: 20px;
-  padding: 20px 22px;
-  border-top: 4px solid var(--line-blue);
+  padding: 22px 0 18px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
 }
 
 .section-kicker {
   margin: 0 0 7px;
-  color: var(--navy);
-  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 12px;
+  color: var(--red);
+  font-family: Inter, "Noto Sans KR", system-ui, sans-serif;
+  font-size: 13px;
   font-weight: 800;
-  letter-spacing: 0.12em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -118,11 +122,11 @@ h2 {
 }
 
 .event-meta span {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 7px 11px;
-  background: #f8fafc;
-  color: #344256;
+  border: 1px solid #e7ebf1;
+  border-radius: 4px;
+  padding: 6px 10px;
+  background: #fff;
+  color: #4b5b70;
   font-size: 13px;
   font-weight: 850;
 }
@@ -138,7 +142,7 @@ h2 {
 .primary-button,
 .secondary-button {
   min-height: 40px;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 0 14px;
   border: 1px solid var(--line);
   background: var(--paper);
@@ -171,7 +175,7 @@ h2 {
   background: linear-gradient(180deg, #f20b1d, #d90010);
   color: white;
   font-size: 17px;
-  box-shadow: 0 10px 18px rgba(230, 0, 18, 0.18);
+  box-shadow: 0 6px 12px rgba(230, 0, 18, 0.16);
 }
 
 .secondary-button {
@@ -228,7 +232,7 @@ h2 {
   overflow: hidden;
   min-height: 480px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 6px;
   background: #101820;
   box-shadow: var(--shadow);
 }
