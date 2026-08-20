@@ -111,7 +111,7 @@ function extractTotalBudget(text) {
 
 function parseNaturalPrompt(text) {
   const normalized = text.replace(/\s+/g, " ").trim().toUpperCase();
-  const fallbackSplit = normalized.split(/없으면|안되면|못 잡으면|대안|차선/);
+  const fallbackSplit = normalized.split(/없으면|안되면|안 되면|못 잡으면|대안|차선/);
   const primaryPart = fallbackSplit[0] || normalized;
   const fallbackPart = fallbackSplit.slice(1).join(" ") || "";
   const grades = ["VIP", "R", "S"];
@@ -143,7 +143,9 @@ function applyParsedCondition(parsed, source = "gemini") {
   $("geminiMessage").textContent =
     source === "gemini"
       ? "Gemini가 자연어 요청을 좌석 우선순위, 가격 상한, 수량 조건으로 구조화했습니다."
-      : "Gemini 응답 지연으로 기본 해석 엔진이 조건을 임시 구조화했습니다.";
+      : source === "pending"
+        ? "Gemini가 요청을 해석하고 있습니다."
+        : "Gemini 응답 지연으로 기본 해석 엔진이 조건을 임시 구조화했습니다.";
 
   renderConditionSummary();
 }
@@ -172,6 +174,10 @@ function scheduleNaturalPromptParsing() {
     applyParsedCondition({}, "fallback");
     return;
   }
+
+  applyParsedCondition(parseNaturalPrompt(text), "pending");
+  $("parsingStatus").textContent = "해석 중";
+  $("parsingStatus").className = "status-chip warning";
 
   state.parseTimer = setTimeout(() => {
     parseConditionWithGemini(text, requestSeq);

@@ -110,9 +110,11 @@ function normalizeParsedCondition(parsed, originalText) {
   const fallback = fallbackParseCondition(originalText);
   const seatCount = Number(parsed.seat_count || fallback.seat_count || 1);
   const totalBudget = Number(parsed.max_total_budget_krw || parsed.total_budget_krw || 0);
+  const textTotalBudget = extractTotalBudget(originalText.toUpperCase());
   const primaryPrice = Number(parsed.primary?.max_price_krw || parsed.max_price_krw || 0);
   const fallbackRule = Array.isArray(parsed.fallback_rules) ? parsed.fallback_rules[0] : null;
   const perSeatFromTotal = totalBudget && seatCount ? Math.floor(totalBudget / seatCount) : 0;
+  const perSeatFromTextTotal = textTotalBudget && seatCount ? Math.floor(textTotalBudget / seatCount) : 0;
   const primaryGrade = parsed.primary?.grade || parsed.preferred_grade || fallback.primary.grade;
   const firstFallbackGrade = fallbackRule?.grade || fallback.fallback_rules[0]?.grade;
 
@@ -120,16 +122,18 @@ function normalizeParsedCondition(parsed, originalText) {
     event: parsed.event || fallback.event,
     primary: {
       grade: primaryGrade,
-      max_price_krw: primaryPrice || perSeatFromTotal || fallback.primary.max_price_krw,
+      max_price_krw: perSeatFromTextTotal || perSeatFromTotal || primaryPrice || fallback.primary.max_price_krw,
     },
     fallback_rules: firstFallbackGrade
       ? [
           {
             grade: firstFallbackGrade,
             max_price_krw:
-              Number(fallbackRule?.max_price_krw || 0) ||
-              primaryPrice ||
+              perSeatFromTextTotal ||
               perSeatFromTotal ||
+              Number(fallbackRule?.max_price_krw || 0) ||
+              perSeatFromTotal ||
+              primaryPrice ||
               fallback.fallback_rules[0]?.max_price_krw,
           },
         ]
