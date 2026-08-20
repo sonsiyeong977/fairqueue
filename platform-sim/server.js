@@ -29,8 +29,8 @@ const state = {
       queue: [],
       seats: [
         { grade: "VIP", price_krw: 250000, count: 4 },
-        { grade: "R", price_krw: 190000, count: 8 },
-        { grade: "S", price_krw: 120000, count: 12 },
+        { grade: "R", price_krw: 190000, count: 30 },
+        { grade: "S", price_krw: 120000, count: 45 },
       ],
       holds: [],
       orders: [],

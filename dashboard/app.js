@@ -1,7 +1,7 @@
 const PROGRAM_ID = "618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj";
 const EVENT_NAME = "IU Concert";
 const SEAT_PRICES = { VIP: 250000, R: 190000, S: 120000 };
-const ZONE_CAPACITY = { "VIP-A": 6, "R-A": 5, "R-B": 5, "S-A": 5, "S-B": 5, "S-C": 5 };
+const ZONE_CAPACITY = { "VIP-A": 6, "R-A": 15, "R-B": 15, "S-A": 15, "S-B": 15, "S-C": 15 };
 
 const state = {
   event: null,
@@ -20,13 +20,13 @@ const state = {
 const scenarios = {
   success: [
     { grade: "VIP", price_krw: 250000, count: 4 },
-    { grade: "R", price_krw: 190000, count: 8 },
-    { grade: "S", price_krw: 120000, count: 12 },
+    { grade: "R", price_krw: 190000, count: 30 },
+    { grade: "S", price_krw: 120000, count: 45 },
   ],
   fallback: [
     { grade: "VIP", price_krw: 250000, count: 0 },
     { grade: "R", price_krw: 190000, count: 0 },
-    { grade: "S", price_krw: 120000, count: 12 },
+    { grade: "S", price_krw: 120000, count: 45 },
   ],
   refund: [
     { grade: "VIP", price_krw: 250000, count: 0 },
