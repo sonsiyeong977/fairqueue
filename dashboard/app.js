@@ -10,6 +10,8 @@ const state = {
   activeView: "user",
   parseTimer: null,
   parseRequestSeq: 0,
+  selectedGrade: null,
+  resultRefund: false,
 };
 
 const scenarios = {
@@ -480,6 +482,9 @@ function renderProgressPending(message) {
   $("settleAmount").textContent = "-";
   setTxLink("fundTx", null, "fund_tx 대기 중");
   setTxLink("settleTx", null, "settle_tx 대기 중");
+  state.selectedGrade = null;
+  state.resultRefund = false;
+  paintSeatMap("resultSeatMap");
 }
 
 function sleep(ms) {
@@ -500,6 +505,23 @@ function seatStatusLabel(seat) {
   return `잔여 ${available}석`;
 }
 
+function paintSeatMap(containerId, selectedGrade = null, refundMode = false) {
+  const container = $(containerId);
+  if (!container) return;
+  const seats = state.event?.seats || state.activeSeatRows || [];
+
+  container.querySelectorAll(".seat-zone").forEach((zone) => {
+    const grade = zone.dataset.grade;
+    const seat = seats.find((row) => row.grade === grade);
+    const available = Number(seat?.available_count ?? seat?.count ?? 0);
+    zone.classList.toggle("available", available > 0);
+    zone.classList.toggle("sold-out", available <= 0);
+    zone.classList.toggle("selected", Boolean(selectedGrade && grade === selectedGrade && !refundMode));
+    zone.classList.toggle("refund-muted", Boolean(refundMode));
+    zone.textContent = `${grade} ${available > 0 ? available : 0}`;
+  });
+}
+
 function renderSeats() {
   const seats = state.event?.seats || [];
   $("seatTable").innerHTML = seats
@@ -513,6 +535,8 @@ function renderSeats() {
       `
     )
     .join("");
+  paintSeatMap("seatMap");
+  paintSeatMap("resultSeatMap", state.selectedGrade, state.resultRefund);
 }
 
 async function refreshEvents() {
@@ -692,6 +716,9 @@ function renderResult(rawPayload) {
   $("assignedSeat").textContent = isRefund ? "조건에 맞는 좌석 없음" : `${grade}석`;
   $("settlementAmount").textContent = isRefund ? "-" : formatKrw(amount);
   $("assignmentCard").style.borderTopColor = isRefund ? "#a92a23" : "#13b96d";
+  state.selectedGrade = grade || null;
+  state.resultRefund = isRefund;
+  paintSeatMap("resultSeatMap", grade, isRefund);
 
   if (isRefund) {
     $("reasonPanel").className = "reason-panel refund";

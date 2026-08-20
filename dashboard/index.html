@@ -33,6 +33,15 @@
             </thead>
             <tbody id="seatTable"></tbody>
           </table>
+          <div class="venue-map" id="seatMap" aria-label="공연장 좌석 구역">
+            <div class="stage">STAGE</div>
+            <div class="seat-zone vip" data-grade="VIP">VIP</div>
+            <div class="seat-zone r left" data-grade="R">R</div>
+            <div class="seat-zone r right" data-grade="R">R</div>
+            <div class="seat-zone s left" data-grade="S">S</div>
+            <div class="seat-zone s center" data-grade="S">S</div>
+            <div class="seat-zone s right" data-grade="S">S</div>
+          </div>
         </section>
 
         <section class="booking-grid">
@@ -96,14 +105,14 @@
                 </div>
 
                 <label>
-                  <span>최대 수용 가격 (KRW)</span>
-                  <input id="maxPrice" type="number" min="0" step="1000" placeholder="예: 190000" />
+                  <span>가격 상한 (선택)</span>
+                  <input id="maxPrice" type="number" min="0" step="1000" placeholder="비우면 정상가 기준" />
                 </label>
 
                 <div class="field-row">
                   <label>
-                    <span>대안 최대 가격 (KRW)</span>
-                    <input id="fallbackPrice" type="number" min="0" step="1000" placeholder="예: 120000" />
+                    <span>대안 가격 상한 (선택)</span>
+                    <input id="fallbackPrice" type="number" min="0" step="1000" placeholder="비우면 정상가 기준" />
                   </label>
                   <label>
                     <span>수량</span>
@@ -168,6 +177,15 @@
             <div class="payment-box">
               <span>최종 정산 금액</span>
               <strong id="settlementAmount">-</strong>
+            </div>
+            <div class="allocation-map" id="resultSeatMap" aria-label="배정 좌석 구역">
+              <div class="stage">STAGE</div>
+              <div class="seat-zone vip" data-grade="VIP">VIP</div>
+              <div class="seat-zone r left" data-grade="R">R</div>
+              <div class="seat-zone r right" data-grade="R">R</div>
+              <div class="seat-zone s left" data-grade="S">S</div>
+              <div class="seat-zone s center" data-grade="S">S</div>
+              <div class="seat-zone s right" data-grade="S">S</div>
             </div>
             <div class="reason-panel" id="reasonPanel">조건을 제출하면 공식 대기열과 온체인 정산 결과가 표시됩니다.</div>
           </section>
