@@ -109,6 +109,24 @@ function extractTotalBudget(text) {
   return null;
 }
 
+function extractFallbackBudget(text) {
+  const fallbackPart = fallbackTextPart(text);
+  if (!fallbackPart) return null;
+
+  const patterns = [
+    /(?:대신|다만)?[^0-9]{0,16}(?:대안|R석|S석|VIP석)[^0-9]{0,24}(?:예산|최대|상한)[^0-9]{0,12}(\d[\d,]*)\s*(만원|원)/,
+    /(?:대신|다만)?[^0-9]{0,16}(?:대안|R석|S석|VIP석)[^0-9]{0,24}(\d[\d,]*)\s*(만원|원)/,
+    /(\d[\d,]*)\s*(만원|원)[^가-힣0-9]{0,20}(?:대안|R석|S석|VIP석)/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return priceToKrw(match[1], match[2]);
+  }
+
+  return extractTotalBudget(fallbackPart);
+}
+
 function gradeMentions(text) {
   return [...text.matchAll(/\b(VIP|R|S)\s*석?/g)].map((match) => match[1]);
 }
@@ -131,9 +149,13 @@ function parseNaturalPrompt(text) {
   const countMatch = normalized.match(/(\d+)\s*(연석|연속|매|장)/);
   const seatCount = countMatch ? Number(countMatch[1]) : null;
   const totalBudget = extractTotalBudget(normalized);
+  const fallbackBudget = extractFallbackBudget(normalized);
   const perSeatBudget = totalBudget && seatCount ? Math.floor(totalBudget / seatCount) : totalBudget;
+  const fallbackPerSeatBudget = fallbackBudget && seatCount ? Math.floor(fallbackBudget / seatCount) : fallbackBudget;
   const primaryPrice = primaryGrade ? extractPriceForGrade(normalized, primaryGrade) || perSeatBudget : perSeatBudget;
-  const fallbackPrice = fallbackGrade ? extractPriceForGrade(fallbackPart, fallbackGrade) || primaryPrice : null;
+  const fallbackPrice = fallbackGrade
+    ? extractPriceForGrade(fallbackPart, fallbackGrade) || fallbackPerSeatBudget || primaryPrice
+    : null;
 
   return { primaryGrade, fallbackGrade, primaryPrice, fallbackPrice, seatCount };
 }
@@ -148,8 +170,8 @@ function applyParsedCondition(parsed, source = "gemini") {
   const localParsed = parseNaturalPrompt($("naturalPrompt").value);
   const primaryGrade = primary.grade || parsed.primaryGrade || localParsed.primaryGrade || "";
   const fallbackGrade = fallback?.grade || parsed.fallbackGrade || localParsed.fallbackGrade || "";
-  const primaryPrice = primary.max_price_krw || parsed.primaryPrice || localParsed.primaryPrice || "";
-  const fallbackPrice = fallback?.max_price_krw || parsed.fallbackPrice || localParsed.fallbackPrice || primaryPrice || "";
+  const primaryPrice = localParsed.primaryPrice || primary.max_price_krw || parsed.primaryPrice || "";
+  const fallbackPrice = localParsed.fallbackPrice || fallback?.max_price_krw || parsed.fallbackPrice || primaryPrice || "";
   const seatCount = parsed.seat_count || parsed.seatCount || localParsed.seatCount || "";
 
   $("primaryGrade").value = primaryGrade;

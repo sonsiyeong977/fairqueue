@@ -13,7 +13,7 @@ const TURN_INTERVAL_MS = Number(process.env.TURN_INTERVAL_MS || 8000);
 const HOLD_TTL_MS = Number(process.env.HOLD_TTL_MS || 60_000);
 const SETTLE_SERVER_URL = process.env.SETTLE_SERVER_URL || "http://localhost:4000";
 const SETTLE_API_KEY = process.env.SETTLE_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
 
 const defaultEventName = "IU Concert";
@@ -81,6 +81,24 @@ function extractTotalBudget(text) {
   return null;
 }
 
+function extractFallbackBudget(text) {
+  const fallbackPart = fallbackTextPart(text);
+  if (!fallbackPart) return null;
+
+  const patterns = [
+    /(?:대신|다만)?[^0-9]{0,16}(?:대안|R석|S석|VIP석)[^0-9]{0,24}(?:예산|최대|상한)[^0-9]{0,12}(\d[\d,]*)\s*(만원|원)/,
+    /(?:대신|다만)?[^0-9]{0,16}(?:대안|R석|S석|VIP석)[^0-9]{0,24}(\d[\d,]*)\s*(만원|원)/,
+    /(\d[\d,]*)\s*(만원|원)[^가-힣0-9]{0,20}(?:대안|R석|S석|VIP석)/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return priceToKrw(match[1], match[2]);
+  }
+
+  return extractTotalBudget(fallbackPart);
+}
+
 function gradeMentions(text) {
   return [...text.matchAll(/\b(VIP|R|S)\s*석?/g)].map((match) => match[1]);
 }
@@ -104,9 +122,13 @@ function fallbackParseCondition(text) {
   const countMatch = normalized.match(/(\d+)\s*(연석|연속|매|장)/);
   const seatCount = countMatch ? Number(countMatch[1]) : 1;
   const totalBudget = extractTotalBudget(normalized);
+  const fallbackBudget = extractFallbackBudget(normalized);
   const perSeatBudget = totalBudget && seatCount ? Math.floor(totalBudget / seatCount) : totalBudget;
+  const fallbackPerSeatBudget = fallbackBudget && seatCount ? Math.floor(fallbackBudget / seatCount) : fallbackBudget;
   const primaryPrice = primaryGrade ? extractPriceForGrade(normalized, primaryGrade) || perSeatBudget : perSeatBudget;
-  const fallbackPrice = fallbackGrade ? extractPriceForGrade(fallbackPart, fallbackGrade) || primaryPrice : null;
+  const fallbackPrice = fallbackGrade
+    ? extractPriceForGrade(fallbackPart, fallbackGrade) || fallbackPerSeatBudget || primaryPrice
+    : null;
 
   return {
     event: defaultEventName,
@@ -123,10 +145,12 @@ function normalizeParsedCondition(parsed, originalText) {
   const seatCount = Number(parsed.seat_count || fallback.seat_count || 1);
   const totalBudget = Number(parsed.max_total_budget_krw || parsed.total_budget_krw || 0);
   const textTotalBudget = extractTotalBudget(originalText.toUpperCase());
+  const textFallbackBudget = extractFallbackBudget(originalText.toUpperCase());
   const primaryPrice = Number(parsed.primary?.max_price_krw || parsed.max_price_krw || 0);
   const fallbackRule = Array.isArray(parsed.fallback_rules) ? parsed.fallback_rules[0] : null;
   const perSeatFromTotal = totalBudget && seatCount ? Math.floor(totalBudget / seatCount) : 0;
   const perSeatFromTextTotal = textTotalBudget && seatCount ? Math.floor(textTotalBudget / seatCount) : 0;
+  const perSeatFromTextFallback = textFallbackBudget && seatCount ? Math.floor(textFallbackBudget / seatCount) : 0;
   const primaryGrade = parsed.primary?.grade || parsed.preferred_grade || fallback.primary.grade;
   const firstFallbackGrade = fallbackRule?.grade || fallback.fallback_rules[0]?.grade;
 
@@ -141,6 +165,7 @@ function normalizeParsedCondition(parsed, originalText) {
           {
             grade: firstFallbackGrade,
             max_price_krw:
+              perSeatFromTextFallback ||
               perSeatFromTextTotal ||
               perSeatFromTotal ||
               Number(fallbackRule?.max_price_krw || 0) ||
