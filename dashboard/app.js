@@ -11,19 +11,19 @@ const state = {
 
 const scenarios = {
   success: [
-    { grade: "VIP", price_krw: 220000, count: 1 },
-    { grade: "R", price_krw: 198000, count: 3 },
-    { grade: "S", price_krw: 176000, count: 4 },
+    { grade: "VIP", price_krw: 250000, count: 1 },
+    { grade: "R", price_krw: 190000, count: 3 },
+    { grade: "S", price_krw: 120000, count: 4 },
   ],
   fallback: [
-    { grade: "VIP", price_krw: 220000, count: 1 },
-    { grade: "R", price_krw: 198000, count: 0 },
+    { grade: "VIP", price_krw: 250000, count: 1 },
+    { grade: "R", price_krw: 190000, count: 0 },
     { grade: "S", price_krw: 120000, count: 4 },
   ],
   refund: [
-    { grade: "VIP", price_krw: 220000, count: 0 },
-    { grade: "R", price_krw: 198000, count: 0 },
-    { grade: "S", price_krw: 176000, count: 0 },
+    { grade: "VIP", price_krw: 250000, count: 0 },
+    { grade: "R", price_krw: 190000, count: 0 },
+    { grade: "S", price_krw: 120000, count: 0 },
   ],
 };
 
@@ -100,7 +100,7 @@ function parseNaturalPrompt(text) {
   const grades = ["VIP", "R", "S"];
   const primaryGrade = grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(primaryPart));
   const fallbackGrade = grades.find((grade) => new RegExp(`${grade}\\s*석?`).test(fallbackPart));
-  const countMatch = normalized.match(/(\d+)\s*(연석|매|장)/);
+  const countMatch = normalized.match(/(\d+)\s*(연석|연속|매|장)/);
   const seatCount = countMatch ? Number(countMatch[1]) : null;
   const primaryPrice = primaryGrade ? extractPriceForGrade(normalized, primaryGrade) : null;
   const fallbackPrice = fallbackGrade ? extractPriceForGrade(fallbackPart, fallbackGrade) || primaryPrice : null;
@@ -123,6 +123,21 @@ function applyNaturalPromptToForm() {
 function renderParsedGrid() {
   const conditions = conditionsFromForm();
   const fallback = conditions.fallback_rules[0];
+  const hasCondition =
+    Boolean(conditions.primary.grade) &&
+    conditions.primary.max_price_krw > 0 &&
+    conditions.seat_count > 0;
+
+  $("geminiInterpretation").classList.toggle("hidden", !hasCondition);
+  $("parsedGrid").classList.toggle("hidden", !hasCondition);
+  $("parsingStatus").textContent = hasCondition ? "AGREED & PARSED" : "입력 전";
+  $("parsingStatus").className = hasCondition ? "status-chip success" : "status-chip";
+
+  if (!hasCondition) {
+    $("parsedGrid").innerHTML = "";
+    return;
+  }
+
   const primaryBudget = conditions.primary.max_price_krw * conditions.seat_count;
   const fallbackBudget = fallback ? fallback.max_price_krw * conditions.seat_count : 0;
 
@@ -149,6 +164,19 @@ function renderParsedGrid() {
 function renderConditionSummary() {
   const conditions = conditionsFromForm();
   const fallback = conditions.fallback_rules[0];
+  const hasCondition =
+    Boolean(conditions.primary.grade) &&
+    conditions.primary.max_price_krw > 0 &&
+    conditions.seat_count > 0;
+
+  if (!hasCondition) {
+    $("conditionSummary").innerHTML = "";
+    renderParsedGrid();
+    return;
+  }
+
+  const primaryBudget = conditions.primary.max_price_krw * conditions.seat_count;
+  const fallbackBudget = fallback ? fallback.max_price_krw * conditions.seat_count : 0;
   $("conditionSummary").innerHTML = `
     <div>
       <span>요청 좌석</span>
@@ -156,7 +184,7 @@ function renderConditionSummary() {
     </div>
     <div>
       <span>최대 예산</span>
-      <strong>${formatKrw(conditions.primary.max_price_krw * conditions.seat_count)}</strong>
+      <strong>${formatKrw(fallback ? Math.max(primaryBudget, fallbackBudget) : primaryBudget)}</strong>
     </div>
     <div>
       <span>수량</span>
@@ -207,11 +235,11 @@ function applyScenarioDefaults(name) {
 
   if (name === "success") {
     setFormValues({
-      prompt: "R석 20만원 이하로 1매 예매해줘. 없으면 S석도 괜찮아.",
+      prompt: "R석 19만원 이하로 1매 예매해줘. 없으면 S석 12만원 이하도 괜찮아.",
       primaryGrade: "R",
       fallbackGrade: "S",
-      maxPrice: 200000,
-      fallbackPrice: 180000,
+      maxPrice: 190000,
+      fallbackPrice: 120000,
       seatCount: 1,
     });
   }
@@ -569,6 +597,12 @@ async function runDemo(scenarioName) {
   try {
     const userId = `${$("userId").value}-${Date.now().toString(36)}`;
     const conditions = conditionsFromForm();
+    if (
+      scenarioName === "custom" &&
+      (!conditions.primary.grade || conditions.primary.max_price_krw <= 0 || conditions.seat_count <= 0)
+    ) {
+      throw new Error("예매 조건을 먼저 입력해 주세요. 좌석 등급, 최대 가격, 수량이 필요합니다.");
+    }
     if (scenarioName === "custom") {
       log("현재 남은 좌석 재고를 기준으로 사용자 조건을 처리합니다.");
       await refreshEvents();

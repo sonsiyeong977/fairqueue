@@ -17,23 +17,25 @@
         <div class="header-actions">
           <button class="ghost-button active" id="userViewBtn" type="button">사용자 화면</button>
           <button class="ghost-button" id="operatorViewBtn" type="button">운영사 화면</button>
-          <button class="ghost-button" id="demoResetBtn" type="button">Demo Reset</button>
-          <button class="ghost-button" id="successDemoBtn" type="button">
-            <span class="signal success"></span>
-            성공 케이스 실행
-          </button>
-          <button class="ghost-button" id="fallbackDemoBtn" type="button">
-            <span class="signal neutral"></span>
-            대안 케이스 실행
-          </button>
-          <button class="ghost-button" id="refundDemoBtn" type="button">
-            <span class="signal danger"></span>
-            환불 케이스 실행
-          </button>
         </div>
       </header>
 
       <section id="bookingView">
+        <section class="card info-card">
+          <h2>공연 상세 정보</h2>
+          <p>원하는 좌석 등급과 예산을 정하면, FairQueue는 공식 대기열 순서 안에서 조건에 맞는 Offer만 수락합니다.</p>
+          <table>
+            <thead>
+              <tr>
+                <th>등급</th>
+                <th>정상가 (KRW)</th>
+                <th>상태</th>
+              </tr>
+            </thead>
+            <tbody id="seatTable"></tbody>
+          </table>
+        </section>
+
         <section class="booking-grid">
           <section class="poster-panel">
             <div class="poster-frame">
@@ -45,32 +47,30 @@
             <section class="card condition-card booking-flow-card">
               <div class="card-title compact">
                 <div>
-                  <p class="section-kicker">STEP 1 · Natural Language</p>
+                  <p class="section-kicker">STEP 1 · 조건 위임</p>
                   <h2>예매 조건 작성</h2>
                 </div>
-                <span class="status-chip success">AGREED & PARSED</span>
+                <span class="status-chip" id="parsingStatus">입력 전</span>
               </div>
 
               <label class="prompt-field">
-                <span>자연어로 원하는 조건을 입력하세요</span>
-                <textarea id="naturalPrompt">R석 12만원 이하, 2연석 우선. 없으면 S석까지 허용해줘.</textarea>
+                <textarea id="naturalPrompt" placeholder="예: R석 19만원 이하로 2연석 잡아줘. 안 되면 S석 12만원 이하도 괜찮아."></textarea>
               </label>
 
-              <div class="gemini-interpretation">
+              <div class="gemini-interpretation hidden" id="geminiInterpretation">
                 <span>GEMINI</span>
                 <p>요청을 좌석 우선순위, 가격 상한, 수량 조건으로 정리했습니다.</p>
               </div>
 
-              <div class="parsed-grid" id="parsedGrid"></div>
-              <p class="microcopy">최종 실행 전, 실제 좌석 재고와 가격 조건을 한 번 더 확인합니다.</p>
+              <div class="parsed-grid hidden" id="parsedGrid"></div>
 
               <form id="bookingForm">
                 <div class="form-divider">
-                  <span>Gemini 해석 결과 확인 및 조정</span>
+                  <span>조건 확인</span>
                 </div>
 
                 <label>
-                  <span>사용자 ID</span>
+                  <span>예매자 ID</span>
                   <input id="userId" value="demo-user-1" />
                 </label>
 
@@ -78,35 +78,36 @@
                   <label>
                     <span>1순위 좌석</span>
                     <select id="primaryGrade">
+                      <option value="" selected>선택</option>
                       <option value="VIP">VIP석</option>
-                      <option value="R" selected>R석</option>
+                      <option value="R">R석</option>
                       <option value="S">S석</option>
                     </select>
                   </label>
                   <label>
                     <span>대안 좌석</span>
                     <select id="fallbackGrade">
+                      <option value="" selected>없음</option>
                       <option value="VIP">VIP석</option>
                       <option value="R">R석</option>
-                      <option value="S" selected>S석</option>
-                      <option value="">없음</option>
+                      <option value="S">S석</option>
                     </select>
                   </label>
                 </div>
 
                 <label>
                   <span>최대 수용 가격 (KRW)</span>
-                  <input id="maxPrice" type="number" min="0" step="1000" value="200000" />
+                  <input id="maxPrice" type="number" min="0" step="1000" placeholder="예: 190000" />
                 </label>
 
                 <div class="field-row">
                   <label>
                     <span>대안 최대 가격 (KRW)</span>
-                    <input id="fallbackPrice" type="number" min="0" step="1000" value="150000" />
+                    <input id="fallbackPrice" type="number" min="0" step="1000" placeholder="예: 120000" />
                   </label>
                   <label>
                     <span>수량</span>
-                    <input id="seatCount" type="number" min="1" max="5" value="1" />
+                    <input id="seatCount" type="number" min="1" max="5" placeholder="1" />
                   </label>
                 </div>
 
@@ -117,21 +118,6 @@
               </form>
             </section>
           </aside>
-        </section>
-
-        <section class="card info-card">
-          <h2>공연 상세 정보</h2>
-          <p>사용자가 위임한 좌석 등급, 최대 예산, 대안 조건 안에서만 좌석 Offer를 수락합니다.</p>
-          <table>
-            <thead>
-              <tr>
-                <th>등급</th>
-                <th>정상가 (KRW)</th>
-                <th>상태</th>
-              </tr>
-            </thead>
-            <tbody id="seatTable"></tbody>
-          </table>
         </section>
       </section>
 
@@ -225,6 +211,29 @@
             <strong>Verified · Devnet</strong>
           </div>
         </div>
+
+        <section class="card scenario-control-card">
+          <div>
+            <p class="section-kicker">Inventory Control</p>
+            <h2>좌석 재고 상태 관리</h2>
+            <p>운영자가 판매 상황에 맞춰 재고 상태를 조정하고 정산 흐름을 점검합니다.</p>
+          </div>
+          <div class="scenario-actions">
+            <button class="ghost-button" id="demoResetBtn" type="button">상태 초기화</button>
+            <button class="ghost-button" id="successDemoBtn" type="button">
+              <span class="signal success"></span>
+              정상 재고
+            </button>
+            <button class="ghost-button" id="fallbackDemoBtn" type="button">
+              <span class="signal neutral"></span>
+              대안 재고
+            </button>
+            <button class="ghost-button" id="refundDemoBtn" type="button">
+              <span class="signal danger"></span>
+              전량 매진
+            </button>
+          </div>
+        </section>
 
         <section class="operator-kpis">
           <article class="kpi-card">
