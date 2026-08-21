@@ -648,14 +648,16 @@ function renderSeatDetail(open = false) {
 
   const grade = state.selectedGrade;
   const zones = zoneNamesForGrade(grade);
-  const beforeAllocation = buildZoneAvailability(state.activeSeatRows.length ? state.activeSeatRows : state.event?.seats || []);
+  const displayAvailability =
+    state.resultZoneAvailability ||
+    buildZoneAvailability(state.activeSeatRows.length ? state.activeSeatRows : state.event?.seats || [], state.allocatedSeats);
   panel.innerHTML = `
     <div class="seat-detail-header">
       <span>${grade}석 상세 좌석</span>
       <strong>${state.allocatedSeats.length}매</strong>
     </div>
     <div class="grape-map">
-      ${zones.map((zone) => renderGrapeZone(zone, beforeAllocation)).join("")}
+      ${zones.map((zone) => renderGrapeZone(zone, displayAvailability)).join("")}
     </div>
     <div class="seat-list">
       ${state.allocatedSeats.map((seat) => `<span>${seat.label}</span>`).join("")}
