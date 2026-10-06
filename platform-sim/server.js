@@ -7,6 +7,13 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const app = express();
 app.use(express.json());
 app.use("/dashboard", express.static(path.join(__dirname, "..", "dashboard")));
+const storefrontDist = path.join(__dirname, "..", "storefront", "dist");
+app.get("/", (req, res) => res.redirect("/storefront/"));
+app.use("/storefront", express.static(storefrontDist));
+app.use("/storefront", (req, res, next) => {
+  if (req.method !== "GET" || path.extname(req.path)) return next();
+  res.sendFile(path.join(storefrontDist, "index.html"));
+});
 
 const PORT = Number(process.env.PORT || 3001);
 const TURN_INTERVAL_MS = Number(process.env.TURN_INTERVAL_MS || 8000);
@@ -18,6 +25,8 @@ const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GE
 
 const defaultEventName = "IU Concert";
 const SEAT_PRICES = { VIP: 250000, R: 190000, S: 120000 };
+const catalog = require("../storefront/catalog.json");
+const catalogBySession = new Map();
 
 const state = {
   events: {
@@ -38,6 +47,118 @@ const state = {
     },
   },
 };
+
+for (const event of catalog) {
+  for (const session of event.sessions) {
+    if (catalogBySession.has(session.id)) throw new Error(`Duplicate session: ${session.id}`);
+    catalogBySession.set(session.id, { event, session });
+    state.events[session.id] = {
+      event: session.id,
+      catalog_event_id: event.id,
+      venue: event.venue,
+      sale_status: "OPEN",
+      turn_index: 0,
+      queue: [],
+      seats: session.zones.map((zone) => ({
+        zone_id: zone.id,
+        label: zone.label,
+        grade: zone.grade,
+        price_krw: zone.price,
+        capacity: zone.capacity,
+        count: zone.remaining,
+        available_numbers: event.genre === "Festival"
+          ? null
+          : Array.from(
+              { length: zone.remaining },
+              (_, index) => zone.capacity - zone.remaining + index + 1
+            ),
+      })),
+      holds: [],
+      orders: [],
+      refunds: [],
+    };
+  }
+}
+
+function sessionIsOnSale(sessionId, now = Date.now()) {
+  const record = catalogBySession.get(sessionId);
+  return Boolean(record) &&
+    now >= new Date(record.event.saleOpens).getTime() &&
+    record.session.status !== "SOLD_OUT";
+}
+
+function catalogCondition(text, record, proposed = {}, defaults = {}) {
+  const { event, session } = record;
+  const grades = [...new Set(session.zones.map((zone) => zone.grade))];
+  const faceValue = (grade) => session.zones.find((zone) => zone.grade === grade)?.price || 0;
+  const escapePattern = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const zoneMentions = session.zones.flatMap((zone) => {
+    const labelPattern = zone.label.trim().split(/\s+/).map(escapePattern).join("[\\s-]*");
+    const match = new RegExp(`(?<![A-Za-z0-9])${labelPattern}(?![A-Za-z0-9])`, "i").exec(text);
+    return match ? [{ zone, index: match.index, length: match[0].length }] : [];
+  }).sort((a, b) => a.index - b.index);
+  const gradeText = text.split("");
+  for (const mention of zoneMentions) gradeText.fill(" ", mention.index, mention.index + mention.length);
+  const gradeMentions = [...gradeText.join("").toUpperCase().matchAll(/\b(1DAY|VIP|R|S|A)\b/g)]
+    .filter((match) => grades.includes(match[1]))
+    .map((match) => ({ grade: match[1], index: match.index }));
+  const firstMention = [
+    ...gradeMentions,
+    ...zoneMentions.map((mention) => ({ grade: mention.zone.grade, index: mention.index })),
+  ].sort((a, b) => a.index - b.index)[0];
+  const fallbackCue = /\b(?:or|else|otherwise|fallback)\b|\bif\s+(?:not|unavailable|sold\s*out)|없으면|안\s*되면|대안|못\s*잡으면/i.exec(text);
+  const countMatch = text.match(/(\d+)\s*(?:adjacent\s*)?(?:tickets?|seats?|spots?|연석|매|장)/i);
+  const count = Number(proposed.seat_count || countMatch?.[1] || defaults.seat_count || 1);
+  const primaryGradeHint = proposed.primary?.grade || firstMention?.grade || defaults.primary?.grade || grades[0];
+  const primaryMention = zoneMentions.find((mention) =>
+    mention.zone.grade === primaryGradeHint && (!fallbackCue || mention.index < fallbackCue.index));
+  const primaryZoneId = proposed.primary?.zone_id || primaryMention?.zone.id ||
+    defaults.primary?.zone_id || defaults.preferred_zone_id || null;
+  const primaryZone = session.zones.find((zone) => zone.id === primaryZoneId);
+  const primaryGrade = primaryZone?.grade || primaryGradeHint;
+  const fallbackMention = zoneMentions.find((mention) =>
+    mention.zone.id !== primaryZoneId &&
+    (fallbackCue ? mention.index > fallbackCue.index :
+      mention.zone.grade !== primaryGrade || zoneMentions.length > 1));
+  const fallbackZoneId = proposed.fallback_rules?.[0]?.zone_id ||
+    fallbackMention?.zone.id ||
+    defaults.fallback_rules?.[0]?.zone_id || null;
+  const fallbackZone = session.zones.find((zone) => zone.id === fallbackZoneId);
+  const fallbackGrade = fallbackZone?.grade || proposed.fallback_rules?.[0]?.grade ||
+    gradeMentions.find((mention) => mention.grade !== primaryGrade)?.grade ||
+    defaults.fallback_rules?.[0]?.grade || null;
+  const amounts = [...text.matchAll(/(?:KRW\s*|₩\s*)(\d[\d,]*)|(\d[\d,]*(?:\.\d+)?)\s*(만원|원|KRW)/gi)]
+    .map((match) => match[1]
+      ? Number(match[1].replace(/,/g, ""))
+      : priceToKrw(match[2], match[3]));
+  const totalBudget = /\b(total|budget|overall)\b|총\s*예산|총\s*\d/i.test(text);
+  const textPrimaryCap = amounts[0] ? Math.floor(amounts[0] / (totalBudget ? count : 1)) : 0;
+  const textFallbackCap = amounts[1] ? Math.floor(amounts[1] / (totalBudget ? count : 1)) : 0;
+  const primaryCap = Number(proposed.primary?.max_price_krw || textPrimaryCap ||
+    defaults.primary?.max_price_krw || faceValue(primaryGrade));
+  const fallbackCap = fallbackGrade ? Number(
+    proposed.fallback_rules?.[0]?.max_price_krw || textFallbackCap ||
+    defaults.fallback_rules?.[0]?.max_price_krw || faceValue(fallbackGrade)
+  ) : 0;
+  if ((primaryZoneId && !primaryZone) || (fallbackZoneId && !fallbackZone) ||
+      !Number.isInteger(count) || count < 1 || count > event.maxTickets ||
+      !grades.includes(primaryGrade) || !Number.isFinite(primaryCap) || primaryCap <= 0 ||
+      (fallbackGrade && (!grades.includes(fallbackGrade) || !Number.isFinite(fallbackCap) || fallbackCap <= 0))) {
+    throw httpError(400, "Please review the seat grade, price limit, and ticket quantity");
+  }
+  return {
+    primary: { grade: primaryGrade, zone_id: primaryZone?.id || null, max_price_krw: primaryCap },
+    fallback_rules: fallbackGrade && (fallbackGrade !== primaryGrade ||
+      (fallbackZone && fallbackZone.id !== primaryZone?.id))
+      ? [{ grade: fallbackGrade, zone_id: fallbackZone?.id || null, max_price_krw: fallbackCap }] : [],
+    seat_count: count,
+    preferred_zone_id: primaryZone?.id || null,
+    adjacency_required: count > 1 && Boolean(proposed.adjacency_required ?? defaults.adjacency_required ??
+      /adjacent|together|side.by.side|연석|연속/i.test(text)),
+    allow_split_seats: Boolean(proposed.allow_split_seats ?? defaults.allow_split_seats ??
+      /separate|split|apart|따로|각각/i.test(text)),
+  };
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -178,7 +299,7 @@ function normalizeParsedCondition(parsed, originalText) {
         ]
       : [],
     seat_count: seatCount,
-    adjacency_required: Boolean(parsed.adjacency_required ?? fallback.adjacency_required),
+    adjacency_required: seatCount > 1 && Boolean(parsed.adjacency_required ?? fallback.adjacency_required),
     allow_split_seats: Boolean(parsed.allow_split_seats ?? fallback.allow_split_seats),
   };
 }
@@ -206,13 +327,17 @@ function publicSeatRows(eventState) {
 
   return eventState.seats.map((seat) => {
     const held = eventState.holds
-      .filter((hold) => hold.grade === seat.grade)
+      .filter((hold) => seat.zone_id
+        ? hold.zone_id === seat.zone_id
+        : hold.grade === seat.grade)
       .reduce((sum, hold) => sum + hold.count, 0);
 
     return {
       ...seat,
       held_count: held,
-      sold_count: soldCountForGrade(eventState, seat.grade),
+      sold_count: seat.zone_id
+        ? seat.capacity - seat.count
+        : soldCountForGrade(eventState, seat.grade),
       available_count: Math.max(seat.count - held, 0),
     };
   });
@@ -227,18 +352,21 @@ function soldCountForGrade(eventState, grade) {
 function seatStatusRows(eventState) {
   return publicSeatRows(eventState).flatMap((seat) => [
     {
+      zone_id: seat.zone_id || null,
       grade: seat.grade,
       status: "AVAILABLE",
       count: seat.available_count,
       price_krw: seat.price_krw,
     },
     {
+      zone_id: seat.zone_id || null,
       grade: seat.grade,
       status: "HELD",
       count: seat.held_count,
       price_krw: seat.price_krw,
     },
     {
+      zone_id: seat.zone_id || null,
       grade: seat.grade,
       status: "SOLD",
       count: seat.sold_count,
@@ -280,7 +408,58 @@ function queueSnapshot(eventState, entry) {
   };
 }
 
+function chooseSeatNumbers(eventState, seat, count, adjacencyRequired) {
+  if (!seat.available_numbers) return [];
+  const held = new Set(eventState.holds
+    .filter((hold) => hold.zone_id === seat.zone_id)
+    .flatMap((hold) => hold.seat_numbers || []));
+  const available = seat.available_numbers.filter((number) => !held.has(number));
+  if (available.length < count) return null;
+  for (let index = 0; index <= available.length - count; index += 1) {
+    const run = available.slice(index, index + count);
+    if (run[count - 1] - run[0] === count - 1) return run;
+  }
+  return adjacencyRequired ? null : available.slice(0, count);
+}
+
+function pickCatalogSeat(eventState, conditions) {
+  const count = Number(conditions.seat_count);
+  const rules = [conditions.primary, ...(conditions.fallback_rules || [])].filter(Boolean);
+  const preferredZoneId = conditions.preferred_zone_id;
+  const seats = publicSeatRows(eventState);
+  for (let index = 0; index < rules.length; index += 1) {
+    const rule = rules[index];
+    const candidates = seats
+      .filter((seat) => seat.grade === rule.grade &&
+        (!rule.zone_id || seat.zone_id === rule.zone_id) &&
+        seat.price_krw <= Number(rule.max_price_krw) &&
+        seat.available_count >= count)
+      .sort((a, b) => Number(b.zone_id === preferredZoneId) - Number(a.zone_id === preferredZoneId));
+    for (const seat of candidates) {
+      const seatNumbers = chooseSeatNumbers(
+        eventState,
+        seat,
+        count,
+        Boolean(conditions.adjacency_required && !conditions.allow_split_seats)
+      );
+      if (seatNumbers === null) continue;
+      return {
+        zone_id: seat.zone_id,
+        zone_label: seat.label,
+        seat_numbers: seatNumbers,
+        grade: seat.grade,
+        price_krw: seat.price_krw,
+        count,
+        match_type: index === 0 ? "PRIMARY" : "FALLBACK",
+        matched_rule_index: index,
+      };
+    }
+  }
+  return null;
+}
+
 function pickSeat(eventState, conditions = {}) {
+  if (catalogBySession.has(eventState.event)) return pickCatalogSeat(eventState, conditions);
   const primary = conditions.primary;
   const fallbackRules = conditions.fallback_rules || [];
   const seatCount = Number(conditions.seat_count || 1);
@@ -316,6 +495,22 @@ function pickSeat(eventState, conditions = {}) {
 }
 
 function explainNoOffer(eventState, conditions = {}) {
+  if (catalogBySession.has(eventState.event)) {
+    const count = Number(conditions.seat_count || 1);
+    const details = [conditions.primary, ...(conditions.fallback_rules || [])]
+      .filter(Boolean)
+      .map((rule) => {
+        const rows = publicSeatRows(eventState).filter((seat) =>
+          seat.grade === rule.grade && (!rule.zone_id || seat.zone_id === rule.zone_id));
+        const label = rows[0]?.label || rule.zone_id || rule.grade;
+        if (!rows.length) return `${label} is not sold for this performance.`;
+        if (rows.every((seat) => seat.price_krw > Number(rule.max_price_krw))) {
+          return `${label} exceeds your price limit.`;
+        }
+        return `No ${label} zone has ${count} suitable ${count === 1 ? "seat" : "seats"} left together.`;
+      });
+    return details.join(" ") || "No seats match your conditions.";
+  }
   const primary = conditions.primary;
   const fallbackRules = conditions.fallback_rules || [];
   const seatCount = Number(conditions.seat_count || 1);
@@ -351,7 +546,10 @@ function explainNoOffer(eventState, conditions = {}) {
 
 function expireHolds(eventState) {
   const now = Date.now();
-  eventState.holds = eventState.holds.filter((hold) => hold.expires_at_ms > now);
+  eventState.holds = eventState.holds.filter((hold) =>
+    hold.expires_at_ms > now ||
+    eventState.queue.some((entry) => entry.queue_id === hold.queue_id && entry.processing)
+  );
 }
 
 function createHold(eventState, queueEntry, seat) {
@@ -361,6 +559,9 @@ function createHold(eventState, queueEntry, seat) {
     user_id: queueEntry.user_id,
     event: eventState.event,
     grade: seat.grade,
+    zone_id: seat.zone_id || null,
+    zone_label: seat.zone_label || null,
+    seat_numbers: seat.seat_numbers || [],
     price_krw: seat.price_krw,
     count: seat.count,
     match_type: seat.match_type,
@@ -407,12 +608,23 @@ function httpError(status, message) {
 }
 
 function confirmHold(eventState, hold, txHash) {
-  const seat = eventState.seats.find((row) => row.grade === hold.grade);
+  const seat = eventState.seats.find((row) => hold.zone_id
+    ? row.zone_id === hold.zone_id
+    : row.grade === hold.grade);
   if (!seat || seat.count < hold.count) {
     throw httpError(409, "seat is no longer available");
   }
 
+  if (seat.available_numbers &&
+      !hold.seat_numbers.every((number) => seat.available_numbers.includes(number))) {
+    throw httpError(409, "held seats are no longer available");
+  }
+
   seat.count -= hold.count;
+  if (seat.available_numbers) {
+    const assigned = new Set(hold.seat_numbers);
+    seat.available_numbers = seat.available_numbers.filter((number) => !assigned.has(number));
+  }
   eventState.holds = eventState.holds.filter((item) => item.hold_id !== hold.hold_id);
 
   const entry = eventState.queue.find((item) => item.queue_id === hold.queue_id);
@@ -424,6 +636,9 @@ function confirmHold(eventState, hold, txHash) {
     user_id: hold.user_id,
     queue_id: hold.queue_id,
     grade: hold.grade,
+    zone_id: hold.zone_id,
+    zone_label: hold.zone_label,
+    seat_numbers: hold.seat_numbers,
     price_krw: hold.price_krw,
     count: hold.count,
     status: txHash ? "SETTLED" : "PURCHASED",
@@ -479,6 +694,11 @@ async function callSettleServer(eventState, queueEntry, offeredSeat) {
     throw httpError(502, message);
   }
 
+  if (!["SETTLE_PRIMARY", "SETTLE_FALLBACK", "REFUND"].includes(body.final_decision) ||
+      !body.fund_tx || !body.settle_tx) {
+    throw httpError(502, "settle-server returned an incomplete settlement result");
+  }
+
   return body;
 }
 
@@ -510,10 +730,81 @@ app.get("/health", (req, res) => {
   res.json({ ok: true, service: "fairqueue-platform-sim", time: nowIso() });
 });
 
+app.get("/catalog/events", (req, res) => {
+  res.json({
+    events: catalog.map((event) => ({
+      id: event.id,
+      title: event.title,
+      subtitle: event.subtitle,
+      genre: event.genre,
+      venue: event.venue,
+      saleOpens: event.saleOpens,
+      maxTickets: event.maxTickets,
+      status: Date.now() >= new Date(event.saleOpens).getTime() ? "ON_SALE" : "OPENING_SOON",
+      sessions: event.sessions.map((session) => {
+        const rows = publicSeatRows(state.events[session.id]);
+        const remaining = rows.reduce((sum, row) => sum + row.available_count, 0);
+        return {
+          id: session.id,
+          date: session.date,
+          time: session.time,
+          status: !sessionIsOnSale(session.id)
+            ? (session.status === "SOLD_OUT" ? "SOLD_OUT" : "OPENING_SOON")
+            : remaining === 0 ? "SOLD_OUT" : session.status,
+          zones: rows.map((row) => ({
+            id: row.zone_id,
+            label: row.label,
+            grade: row.grade,
+            view: session.zones.find((zone) => zone.id === row.zone_id)?.view,
+            remaining: row.available_count,
+            price: row.price_krw,
+          })),
+        };
+      }),
+    })),
+  });
+});
+
 app.post("/parse-condition", async (req, res) => {
   const text = String(req.body.text || "").trim();
   if (!text) {
     return res.status(400).json({ error: "text is required" });
+  }
+
+  if (req.body.session_id) {
+    const record = catalogBySession.get(req.body.session_id);
+    if (!record) return res.status(404).json({ error: "Performance not found" });
+    const defaults = req.body.defaults || {};
+    let fallback;
+    try {
+      fallback = catalogCondition(text, record, {}, defaults);
+    } catch (error) {
+      return res.status(error.status || 400).json({ error: error.message });
+    }
+    if (!genAI) return res.json({ source: "fallback", parsed: fallback });
+    try {
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+      const grades = [...new Set(record.session.zones.map((zone) => zone.grade))];
+      const prompt = `Parse the ticket buyer's request for ${record.event.title} into JSON only.\n` +
+        `Valid seat grades: ${grades.join(", ")}. Prices are KRW per ticket.\n` +
+        `Valid seat zones (label -> id): ${record.session.zones.map((zone) => `${zone.label} -> ${zone.id}`).join(", ")}. ` +
+        `If a zone is named, include its id in that rule's zone_id; otherwise use null.\n` +
+        `If a budget is total for several tickets, divide by seat_count.\n` +
+        `Return {"primary":{"grade":"...","zone_id":string|null,"max_price_krw":number|null},` +
+        `"fallback_rules":[{"grade":"...","zone_id":string|null,"max_price_krw":number|null}],` +
+        `"seat_count":number,"adjacency_required":boolean,"allow_split_seats":boolean}.\n` +
+        `Never invent a seat grade or price. Request: ${text}`;
+      const result = await model.generateContent(prompt);
+      const parsed = JSON.parse(result.response.text().replace(/```json|```/g, "").trim());
+      return res.json({
+        source: "gemini",
+        model: GEMINI_MODEL,
+        parsed: catalogCondition(text, record, parsed, defaults),
+      });
+    } catch (error) {
+      console.warn(`[parse-condition] Gemini unavailable for ${record.session.id}: ${error.message}`);
+      return res.json({ source: "fallback", parsed: fallback });
+    }
   }
 
   const fallback = fallbackParseCondition(text);
@@ -618,6 +909,9 @@ app.get("/seats/:event", (req, res) => {
 });
 
 app.post("/seats/:event", (req, res) => {
+  if (catalogBySession.has(req.params.event)) {
+    return res.status(403).json({ error: "Catalog inventory cannot be edited from this endpoint" });
+  }
   const eventState = getOrCreateEvent(decodeURIComponent(req.params.event));
   eventState.seats = (req.body.availableSeats || []).map((seat) => ({
     grade: seat.grade,
@@ -638,6 +932,30 @@ app.post("/queue/join", (req, res) => {
   const { user_id, event, conditions } = req.body;
   if (!user_id || !event) {
     return res.status(400).json({ error: "user_id and event are required" });
+  }
+
+  const catalogRecord = catalogBySession.get(event);
+  if (catalogRecord) {
+    if (!sessionIsOnSale(event)) {
+      return res.status(409).json({ error: "Tickets are not on sale for this performance" });
+    }
+    const count = Number(conditions?.seat_count);
+    const grades = new Set(catalogRecord.session.zones.map((zone) => zone.grade));
+    const fallbacks = Array.isArray(conditions?.fallback_rules) ? conditions.fallback_rules : [];
+    const rules = [conditions?.primary, ...fallbacks];
+    const validRules = rules.length > 0 && rules.every((rule) =>
+      rule && grades.has(rule.grade) &&
+      (!rule.zone_id || catalogRecord.session.zones.some((zone) =>
+        zone.id === rule.zone_id && zone.grade === rule.grade)) &&
+      Number.isFinite(Number(rule.max_price_krw)) && Number(rule.max_price_krw) > 0);
+    const preferredZoneValid = !conditions?.preferred_zone_id ||
+      catalogRecord.session.zones.some((zone) => zone.id === conditions.preferred_zone_id);
+    if (!Number.isInteger(count) || count < 1 || count > catalogRecord.event.maxTickets ||
+        !validRules || !preferredZoneValid) {
+      return res.status(400).json({ error: "Invalid seat conditions for this performance" });
+    }
+  } else if (event !== defaultEventName) {
+    return res.status(404).json({ error: "Performance not found" });
   }
 
   const eventState = getOrCreateEvent(event);
@@ -675,6 +993,9 @@ app.get("/queue/my-turn", (req, res) => {
 });
 
 app.post("/queue/advance", (req, res) => {
+  if (catalogBySession.has(req.body.event)) {
+    return res.status(403).json({ error: "Queue turns advance automatically for catalog events" });
+  }
   const eventState = getOrCreateEvent(req.body.event);
   const count = Number(req.body.count || 1);
   eventState.turn_index = Math.min(eventState.turn_index + count, eventState.queue.length);
@@ -688,6 +1009,9 @@ app.post("/queue/advance", (req, res) => {
 });
 
 app.post("/queue/offer", (req, res) => {
+  if (catalogBySession.has(req.body.event)) {
+    return res.status(403).json({ error: "Catalog offers are processed through settlement" });
+  }
   advanceTurns();
 
   const eventState = getOrCreateEvent(req.body.event);
@@ -731,6 +1055,9 @@ app.post("/queue/offer", (req, res) => {
 });
 
 app.post("/purchase/confirm", (req, res) => {
+  if (catalogBySession.has(req.body.event)) {
+    return res.status(403).json({ error: "Catalog purchases require settlement" });
+  }
   const eventState = getOrCreateEvent(req.body.event);
   expireHolds(eventState);
 
@@ -769,6 +1096,9 @@ app.post("/settlement/mark-paid", (req, res) => {
 });
 
 app.post("/refund/request", (req, res) => {
+  if (catalogBySession.has(req.body.event)) {
+    return res.status(403).json({ error: "Catalog refunds are processed through settlement" });
+  }
   const eventState = getOrCreateEvent(req.body.event);
   const entry = findQueueEntry(eventState, req.body);
   if (!entry) {
@@ -796,6 +1126,9 @@ app.post("/refund/request", (req, res) => {
 });
 
 app.post("/refund/mark-refunded", (req, res) => {
+  if (catalogBySession.has(req.body.event)) {
+    return res.status(403).json({ error: "Catalog refunds require settlement" });
+  }
   const eventState = getOrCreateEvent(req.body.event);
   const refund = eventState.refunds.find(
     (item) => item.refund_id === req.body.refund_id || item.queue_id === req.body.queue_id
@@ -819,6 +1152,7 @@ app.post("/refund/mark-refunded", (req, res) => {
 });
 
 app.post("/demo/settle-offer", async (req, res) => {
+  let activeEntry = null;
   try {
     advanceTurns();
 
@@ -836,6 +1170,9 @@ app.post("/demo/settle-offer", async (req, res) => {
         queue: queueSnapshot(eventState, entry),
       });
     }
+    if (entry.processing) {
+      return res.status(409).json({ error: "settlement is already in progress" });
+    }
 
     if (entry.offer) {
       const activeHold = eventState.holds.find((hold) => hold.hold_id === entry.offer.hold_id);
@@ -849,6 +1186,8 @@ app.post("/demo/settle-offer", async (req, res) => {
     if (!snapshot.is_my_turn && entry.status !== "OFFERED") {
       return res.status(409).json({ error: "not your turn yet", queue: snapshot });
     }
+    entry.processing = true;
+    activeEntry = entry;
 
     let hold = entry.offer;
     if (!hold) {
@@ -909,10 +1248,15 @@ app.post("/demo/settle-offer", async (req, res) => {
     });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
+  } finally {
+    if (activeEntry) activeEntry.processing = false;
   }
 });
 
 app.post("/admin/scenario", (req, res) => {
+  if (catalogBySession.has(req.body.event)) {
+    return res.status(403).json({ error: "Catalog sessions cannot be reset from this endpoint" });
+  }
   const eventState = getOrCreateEvent(req.body.event || defaultEventName);
   eventState.sale_status = req.body.sale_status || "OPEN";
   eventState.turn_index = Number(req.body.turn_index || 0);
@@ -935,7 +1279,7 @@ app.post("/admin/scenario", (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+if (require.main === module) app.listen(PORT, () => {
   console.log(`FairQueue platform simulator running on http://localhost:${PORT}`);
   console.log("GET  /health");
   console.log("GET  /events");
@@ -949,3 +1293,5 @@ app.listen(PORT, () => {
   console.log("POST /refund/request");
   console.log("POST /refund/mark-refunded");
 });
+
+module.exports = { app, state, sessionIsOnSale };

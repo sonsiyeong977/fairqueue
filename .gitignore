@@ -1,5 +1,7 @@
 .env
 node_modules/
+storefront/dist/
+storefront/*.tsbuildinfo
 agent/escrow-wallet.json
 
 # Anchor / Solana build outputs and local ledgers

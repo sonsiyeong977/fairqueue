@@ -1,0 +1,121 @@
+[
+  {
+    "id": "orbit-afterimage",
+    "title": "ORBIT/9 LIVE 2026",
+    "subtitle": "AFTERIMAGE",
+    "genre": "Concert",
+    "artist": "ORBIT/9",
+    "venue": "MIRAE ARENA",
+    "city": "Seoul",
+    "period": "2026.11.20 - 11.22",
+    "runtime": "120 minutes",
+    "age": "Ages 12+",
+    "poster": "/storefront/images/orbit.png",
+    "intro": "What remains after the lights go out.",
+    "description": "AFTERIMAGE is ORBIT/9's second solo show. Hear favorites from the last album, newly arranged live sessions, and tracks debuting on this stage. Three chapters, one night to remember.",
+    "saleOpens": "2026-09-25T20:00:00+09:00",
+    "status": "ON_SALE",
+    "maxTickets": 2,
+    "sessions": [
+      {
+        "id": "orbit-1120", "date": "2026-11-20", "time": "20:00", "status": "AVAILABLE",
+        "zones": [
+          { "id": "vip-a", "label": "VIP A", "grade": "VIP", "price": 176000, "capacity": 70, "remaining": 0, "view": "Main floor, left of the center aisle", "shape": "vip-a" },
+          { "id": "vip-b", "label": "VIP B", "grade": "VIP", "price": 176000, "capacity": 70, "remaining": 12, "view": "Main floor, right of the center aisle", "shape": "vip-b" },
+          { "id": "r-1", "label": "R 1", "grade": "R", "price": 154000, "capacity": 100, "remaining": 38, "view": "Main floor left, close to the stage", "shape": "r-1" },
+          { "id": "r-2", "label": "R 2", "grade": "R", "price": 154000, "capacity": 100, "remaining": 46, "view": "Main floor right, close to the stage", "shape": "r-2" },
+          { "id": "s-1", "label": "S 1", "grade": "S", "price": 132000, "capacity": 130, "remaining": 94, "view": "Upper level left, full-stage view", "shape": "s-1" },
+          { "id": "s-2", "label": "S 2", "grade": "S", "price": 132000, "capacity": 130, "remaining": 87, "view": "Upper level right, full-stage view", "shape": "s-2" },
+          { "id": "a-1", "label": "A 1", "grade": "A", "price": 110000, "capacity": 150, "remaining": 121, "view": "Upper tier left, panoramic stage view", "shape": "a-1" },
+          { "id": "a-2", "label": "A 2", "grade": "A", "price": 110000, "capacity": 150, "remaining": 118, "view": "Upper tier right, panoramic stage view", "shape": "a-2" }
+        ]
+      },
+      {
+        "id": "orbit-1121", "date": "2026-11-21", "time": "18:00", "status": "LIMITED",
+        "zones": [
+          { "id": "vip-a", "label": "VIP A", "grade": "VIP", "price": 176000, "capacity": 70, "remaining": 0, "view": "Main floor, left of the center aisle", "shape": "vip-a" },
+          { "id": "vip-b", "label": "VIP B", "grade": "VIP", "price": 176000, "capacity": 70, "remaining": 4, "view": "Main floor, right of the center aisle", "shape": "vip-b" },
+          { "id": "r-1", "label": "R 1", "grade": "R", "price": 154000, "capacity": 100, "remaining": 14, "view": "Main floor left, close to the stage", "shape": "r-1" },
+          { "id": "r-2", "label": "R 2", "grade": "R", "price": 154000, "capacity": 100, "remaining": 17, "view": "Main floor right, close to the stage", "shape": "r-2" },
+          { "id": "s-1", "label": "S 1", "grade": "S", "price": 132000, "capacity": 130, "remaining": 35, "view": "Upper level left, full-stage view", "shape": "s-1" },
+          { "id": "s-2", "label": "S 2", "grade": "S", "price": 132000, "capacity": 130, "remaining": 33, "view": "Upper level right, full-stage view", "shape": "s-2" },
+          { "id": "a-1", "label": "A 1", "grade": "A", "price": 110000, "capacity": 150, "remaining": 45, "view": "Upper tier left, panoramic stage view", "shape": "a-1" },
+          { "id": "a-2", "label": "A 2", "grade": "A", "price": 110000, "capacity": 150, "remaining": 44, "view": "Upper tier right, panoramic stage view", "shape": "a-2" }
+        ]
+      },
+      {
+        "id": "orbit-1122", "date": "2026-11-22", "time": "18:00", "status": "SOLD_OUT",
+        "zones": [
+          { "id": "vip-a", "label": "VIP A", "grade": "VIP", "price": 176000, "capacity": 70, "remaining": 0, "view": "Main floor, left of the center aisle", "shape": "vip-a" },
+          { "id": "vip-b", "label": "VIP B", "grade": "VIP", "price": 176000, "capacity": 70, "remaining": 0, "view": "Main floor, right of the center aisle", "shape": "vip-b" },
+          { "id": "r-1", "label": "R 1", "grade": "R", "price": 154000, "capacity": 100, "remaining": 0, "view": "Main floor left, close to the stage", "shape": "r-1" },
+          { "id": "r-2", "label": "R 2", "grade": "R", "price": 154000, "capacity": 100, "remaining": 0, "view": "Main floor right, close to the stage", "shape": "r-2" },
+          { "id": "s-1", "label": "S 1", "grade": "S", "price": 132000, "capacity": 130, "remaining": 0, "view": "Upper level left, full-stage view", "shape": "s-1" },
+          { "id": "s-2", "label": "S 2", "grade": "S", "price": 132000, "capacity": 130, "remaining": 0, "view": "Upper level right, full-stage view", "shape": "s-2" },
+          { "id": "a-1", "label": "A 1", "grade": "A", "price": 110000, "capacity": 150, "remaining": 0, "view": "Upper tier left, panoramic stage view", "shape": "a-1" },
+          { "id": "a-2", "label": "A 2", "grade": "A", "price": 110000, "capacity": 150, "remaining": 0, "view": "Upper tier right, panoramic stage view", "shape": "a-2" }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "garden-of-time",
+    "title": "THE GARDEN OF TIME",
+    "subtitle": "AN ORIGINAL MUSICAL",
+    "genre": "Musical",
+    "artist": "Studio Haze",
+    "venue": "THEATER HAZE",
+    "city": "Seoul",
+    "period": "2026.11.05 - 2027.01.24",
+    "runtime": "155 minutes · 20-minute intermission",
+    "age": "Ages 8+",
+    "poster": "/storefront/images/garden.png",
+    "intro": "What if you could revisit the day you regret most?",
+    "description": "A stranger discovers a garden where time can turn back. Memories, choices, and a season that returns unfold on stage.",
+    "saleOpens": "2026-10-09T14:00:00+09:00",
+    "status": "OPENING_SOON",
+    "maxTickets": 4,
+    "sessions": [
+      {
+        "id": "garden-1105", "date": "2026-11-05", "time": "19:30", "status": "AVAILABLE",
+        "zones": [
+          { "id": "garden-vip", "label": "VIP", "grade": "VIP", "price": 170000, "capacity": 80, "remaining": 61, "view": "Main floor center", "shape": "vip-a" },
+          { "id": "garden-r", "label": "R", "grade": "R", "price": 140000, "capacity": 150, "remaining": 132, "view": "Main floor sides", "shape": "r-1" },
+          { "id": "garden-s", "label": "S", "grade": "S", "price": 110000, "capacity": 130, "remaining": 113, "view": "Upper level", "shape": "s-1" }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "field-note",
+    "title": "FIELD NOTE 2026",
+    "subtitle": "CITY TO FIELD",
+    "genre": "Festival",
+    "artist": "Various Artists",
+    "venue": "RIVERFIELD PARK",
+    "city": "Gyeonggi",
+    "period": "2026.10.24 - 10.25",
+    "runtime": "8 hours per day",
+    "age": "All ages",
+    "poster": "/storefront/images/field.png",
+    "intro": "Leave the city. Keep the music.",
+    "description": "Indie, alternative, and electronic music meet on the riverside lawn. Two days of live sets, from afternoon into the night.",
+    "saleOpens": "2026-09-18T20:00:00+09:00",
+    "status": "ON_SALE",
+    "maxTickets": 4,
+    "sessions": [
+      {
+        "id": "field-1024", "date": "2026-10-24", "time": "13:00", "status": "AVAILABLE",
+        "zones": [
+          { "id": "field-one", "label": "1DAY", "grade": "1DAY", "price": 109000, "capacity": 1200, "remaining": 684, "view": "General admission, all areas", "shape": "vip-a" }
+        ]
+      },
+      {
+        "id": "field-1025", "date": "2026-10-25", "time": "13:00", "status": "AVAILABLE",
+        "zones": [
+          { "id": "field-two", "label": "1DAY", "grade": "1DAY", "price": 109000, "capacity": 1200, "remaining": 527, "view": "General admission, all areas", "shape": "vip-a" }
+        ]
+      }
+    ]
+  }
+]

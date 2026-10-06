@@ -1,6 +1,9 @@
 .git
 .env
 node_modules
+storefront/node_modules
+storefront/dist
+storefront/*.tsbuildinfo
 npm-debug.log
 
 anchor-escrow/.anchor

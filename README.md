@@ -244,7 +244,7 @@ FairQueue's on-chain settlement is handled by an Anchor program deployed on Sola
 | Payments / On-chain | Solana Devnet, Anchor (Rust), PDA Escrow |
 | Solana Client | `@coral-xyz/anchor`, `@solana/web3.js` |
 | Backend | Node.js, Express |
-| Frontend | HTML, CSS, and JavaScript demo dashboard |
+| Frontend | Vite + React + TypeScript event storefront; HTML/CSS/JavaScript booking session and demo dashboard |
 | Deployment | Google Cloud Run with Dockerfile-based containers |
 | Wallet / Signing | Autonomous agent keypair signing (no approval pop-up) — *currently a PoC using local keypairs; planned migration to managed key services such as Google Cloud KMS for commercialization* |
 
@@ -264,11 +264,21 @@ The demo dashboard lets platform operators and judges inspect the complete flow 
 
 <br>
 
+## Event Storefront
+
+The `/storefront/` app lets a visitor browse three fictional performances, choose a date, quantity, and preferred zone, sign in with a browser-only demo profile, and continue into a booking session at `/dashboard/portal.html`. The booking session connects to `/parse-condition`, `/queue/join`, `/queue/my-turn`, and `/demo/settle-offer`. Each performance has its own queue and seat inventory. Successful orders and refunds show the returned Devnet transaction links; My bookings displays browser-local activity.
+
+The concert and festival have on-sale performances. The musical opens on October 9, 2026 at 14:00 KST, and queue entry is blocked until then. The sold-out ORBIT/9 date remains unavailable. The catalog, prices, and venues are fictional; authentication is only a local demo profile; no real ticket is issued. Inventory and queue state reset when the platform process restarts. See [storefront/INTEGRATION.md](storefront/INTEGRATION.md) for the data contract and limitations.
+
+<br>
+
 ## Live Demo URL
 
 ```text
 https://fairqueue-dashboard-305088341641.asia-northeast3.run.app/dashboard/
 ```
+
+The URL above refers to the existing deployment. New storefront and booking-session changes in this repository require a new build and deployment before they appear there.
 
 The deployment consists of two Cloud Run services.
 
@@ -285,6 +295,10 @@ The deployment consists of two Cloud Run services.
 git clone https://github.com/sonsiyeong977/fairqueue.git
 cd fairqueue
 npm install
+cd storefront
+npm install
+npm run build
+cd ..
 ```
 
 Configure `.env`:
@@ -297,6 +311,8 @@ SETTLE_SERVER_URL=http://localhost:4000
 SETTLE_API_KEY=fairqueue-demo-key
 # Optional: specify only when using a wallet other than the default Solana CLI wallet
 # AGENT_KEYPAIR_PATH=/home/you/.config/solana/id.json
+# Optional: a funded Devnet seller address; otherwise demo payouts return to the agent wallet
+# SELLER_PUBKEY=your_devnet_seller_public_key
 ```
 
 **Terminal 1 — Settlement API Server**
@@ -313,6 +329,18 @@ Open the dashboard:
 
 ```text
 http://localhost:3001/dashboard/
+```
+
+Open the event storefront:
+
+```text
+http://localhost:3001/storefront/
+```
+
+Run the API tests (settlement server stub; no Devnet transaction):
+
+```bash
+npm test
 ```
 
 When success or refund scenarios are run from the dashboard, the platform simulator calls the settlement server's `/settle` endpoint through `/demo/settle-offer` and returns transaction hashes for the Anchor escrow's `deposit` → `release` or `refund` flow.

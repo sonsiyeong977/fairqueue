@@ -7,7 +7,7 @@
     "start": "node start.js",
     "platform": "node platform-sim/server.js",
     "settle": "node agent/settle-server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test tests/*.test.js"
   },
   "repository": {
     "type": "git",

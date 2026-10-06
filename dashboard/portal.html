@@ -202,12 +202,19 @@
   textarea { width:100%; height:64px; border-radius:10px; border:1px solid var(--line); background: rgba(255,255,255,.03); color:#fff; padding:12px; font-size:13px; resize:none; font-family:inherit; }
   textarea::placeholder { color: rgba(255,255,255,.3); }
   .field-row { display:flex; gap:10px; margin-top:12px; }
+  .field-row.is-hidden { display:none; }
   .field { flex:1; }
   .field label { display:block; font-size:11px; color: var(--muted); margin-bottom:5px; }
   .field input { width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--line); background: rgba(255,255,255,.03); color:#fff; font-size:13px; }
+  .field select { width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--line); background: var(--panel-2); color:#fff; font-size:13px; }
+  .field input:focus-visible, .field select:focus-visible, textarea:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
 
   .primary-btn { width:100%; margin-top:18px; padding:13px; border:none; border-radius:10px; cursor:pointer; background: linear-gradient(135deg,var(--cyan),var(--violet)); color:#05070f; font-weight:700; font-size:14px; }
   .ghost-btn { width:100%; margin-top:8px; padding:11px; border-radius:10px; cursor:pointer; background:transparent; border:1px solid var(--line); color: var(--text); font-size:13px; }
+  .primary-btn:disabled { opacity:.5; cursor:wait; }
+  .flow-error { color:#ffb5b5; background:rgba(255,80,80,.1); border:1px solid rgba(255,80,80,.3); border-radius:8px; padding:11px; line-height:1.5; font-size:13px; margin:12px 0; }
+  .flow-note { color:var(--muted); font-size:12px; line-height:1.6; }
+  .flow-note strong { color:var(--text); }
 
   .agreed-pill { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; background: rgba(20,241,149,.12); color: var(--green); padding:4px 10px; border-radius:20px; margin-bottom:12px; font-family:'JetBrains Mono',monospace; }
   .agreed-pill .dot { width:6px; height:6px; border-radius:50%; background: var(--green); }
@@ -254,7 +261,7 @@
 <div class="shooting shoot2"></div>
 <div class="vignette"></div>
 
-<a class="back-link" id="backLink" href="../index.html">&larr; Back to ticketing site</a>
+<a class="back-link" id="backLink" href="/storefront/">&larr; Back to event</a>
 
 <div class="hero">
   <div class="portal-glow"></div>
@@ -280,7 +287,7 @@
   </div>
 
   <h1 class="title">Enter the Queue</h1>
-  <p class="tagline">An AI agent holds your place in the official line. The moment your turn comes, a deterministic engine settles or refunds you on Solana — instantly, on-chain, no macros.</p>
+  <p class="tagline">Choose your conditions before joining the platform queue. At your turn, the offer is checked against live demo inventory before Devnet settlement or refund.</p>
 
   <div class="event-chip" id="eventChip" hidden>
     <span class="muted">Booking for</span>
@@ -288,7 +295,7 @@
     <span class="muted" id="eventChipMeta"></span>
   </div>
 
-  <button class="cta" onclick="openModal()">
+  <button class="cta" id="openBooking" onclick="openModal()" disabled>
     <svg viewBox="0 0 24 24" fill="none" stroke="#05070f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a3 3 0 0 0 0 6v2a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-2a3 3 0 0 1 0-6V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1z"/><path d="M13 5v2M13 17v2M13 11v2"/></svg>
     Book with FairQueue AI Agent
   </button>
@@ -301,13 +308,13 @@
 </div>
 
 <div class="overlay" id="overlay">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="FairQueue booking">
     <div class="modal-head">
       <div class="brand">
         <div class="logo">FQ</div>
-        <div><div class="name">FairQueue</div><div class="tag">AI-settled, on-chain guaranteed</div></div>
+        <div><div class="name">FairQueue</div><div class="tag">Official queue · Devnet escrow</div></div>
       </div>
-      <button class="close-btn" onclick="closeModal()">&times;</button>
+      <button class="close-btn" aria-label="Close booking" onclick="closeModal()">&times;</button>
     </div>
     <div class="steps-bar" id="stepsBar">
       <div class="seg" data-i="0"><div class="fill"></div></div>
@@ -315,7 +322,7 @@
       <div class="seg" data-i="2"><div class="fill"></div></div>
       <div class="seg" data-i="3"><div class="fill"></div></div>
     </div>
-    <div class="step-label-row"><span>Conditions</span><span>Queue</span><span>Offer</span><span>Settlement</span></div>
+    <div class="step-label-row"><span>Request</span><span>Review</span><span>Queue</span><span>Result</span></div>
     <div class="modal-body" id="modalBody"></div>
   </div>
 </div>
@@ -340,109 +347,8 @@ function draw(){
 }
 window.addEventListener('resize', resize); resize(); draw();
 
-// ---- Config: edit these two things ------------------------------------
-// 1) Where the "Back" link goes when we can't tell where the visitor came from.
-//    Path is relative to THIS file. If portal.html sits in /dashboard/ and the
-//    ticketing site's home is /index.html, "../index.html" is correct.
-const TICKETING_HOME = '../index.html';
-
-// 2) Events the ticketing site can send people from. The ticketing site links here as:
-//      portal.html?event=iu-her
-//    Add one entry per concert. Prices are in KRW.
-const EVENTS = {
-  'iu-her': {
-    name: 'IU CONCERT [H.E.R]',
-    venue: 'KSPO DOME',
-    date: 'Sun, Aug 23 2026',
-    primary:  { grade: 'R', max: 200000 },
-    fallback: { grade: 'S', max: 120000 },
-    qty: 1,
-    offer: { grade: 'R', seat: 'R-A', price: 198000 }
-  }
-};
-const DEFAULT_EVENT = {
-  name: null, venue: null, date: null,
-  primary:  { grade: 'R', max: 200000 },
-  fallback: { grade: 'S', max: 120000 },
-  qty: 1,
-  offer: { grade: 'R', seat: 'R-A', price: 198000 }
-};
-// ------------------------------------------------------------------------
-
-const krw = n => n.toLocaleString('en-US') + ' KRW';
-const params = new URLSearchParams(location.search);
-const EVENT = EVENTS[params.get('event')] || DEFAULT_EVENT;
-
-// Event chip + page title
-if (EVENT.name) {
-  document.getElementById('eventChipName').textContent = EVENT.name;
-  document.getElementById('eventChipMeta').textContent = [EVENT.venue, EVENT.date].filter(Boolean).join(' · ');
-  document.getElementById('eventChip').hidden = false;
-  document.title = 'FairQueue · ' + EVENT.name;
-}
-
-// Back link: return to the page the visitor came from if it is on our own site,
-// otherwise fall back to TICKETING_HOME.
-(function setBackLink(){
-  const back = document.getElementById('backLink');
-  try {
-    if (document.referrer) {
-      const ref = new URL(document.referrer);
-      if (ref.origin === location.origin && ref.pathname !== location.pathname) {
-        back.href = ref.href;
-        return;
-      }
-    }
-  } catch (e) { /* keep fallback */ }
-  back.href = TICKETING_HOME;
-})();
-
-// modal flow (mock data – wire to real API later)
-let step = 0;
-const overlay = document.getElementById('overlay');
-const body = document.getElementById('modalBody');
-function openModal(){ overlay.classList.add('open'); step=0; render(); }
-function closeModal(){ overlay.classList.remove('open'); }
-function setBar(active){ document.querySelectorAll('.seg').forEach((seg,i)=>{ seg.classList.remove('done','active'); if(i<active) seg.classList.add('done'); else if(i===active) seg.classList.add('active'); }); }
-function render(){
-  setBar(step);
-  if (step===0) body.innerHTML = `
-    <div class="step-title">Set your purchase conditions</div>
-    <div class="step-sub">Tell the agent what you want in plain English — it will wait in the official queue and settle automatically when your turn comes.</div>
-    <textarea placeholder="e.g. Get me ${EVENT.qty} ${EVENT.primary.grade}-grade seat${EVENT.qty>1?'s':''} under ${krw(EVENT.primary.max)}. If not available, ${EVENT.fallback.grade}-grade under ${krw(EVENT.fallback.max)} is fine too."></textarea>
-    <div class="field-row"><div class="field"><label>Max budget</label><input placeholder="Leave blank for face value"></div><div class="field"><label>Quantity</label><input value="${EVENT.qty}"></div></div>
-    <button class="primary-btn" onclick="toStep(1)">Interpret with Gemini →</button>`;
-  else if (step===1) body.innerHTML = `
-    <div class="step-title">Gemini interpreted your request</div>
-    <div class="step-sub">Confirm this is what you meant before the agent joins the official queue.</div>
-    <div class="agreed-pill"><span class="dot"></span> AGREED &amp; PARSED</div>
-    <div class="parsed-card">
-      <div class="parsed-row"><span class="k">Primary seat grade</span><span class="v">${EVENT.primary.grade} (up to ${krw(EVENT.primary.max)})</span></div>
-      <div class="parsed-row"><span class="k">Fallback seat grade</span><span class="v">${EVENT.fallback.grade} (up to ${krw(EVENT.fallback.max)})</span></div>
-      <div class="parsed-row"><span class="k">Quantity</span><span class="v">${EVENT.qty}</span></div>
-    </div>
-    <button class="primary-btn" onclick="toStep(2)">Confirm &amp; Join Official Queue →</button>
-    <button class="ghost-btn" onclick="toStep(0)">← Edit conditions</button>`;
-  else if (step===2) body.innerHTML = `
-    <div class="step-title">Waiting in the official queue</div>
-    <div class="step-sub">No bypass, no macros — your agent holds the same position you'd have yourself.</div>
-    <div class="queue-box"><div class="queue-caption">YOUR POSITION</div><div class="queue-num">#51</div><div class="bar-bg"><div class="bar-fill"></div></div></div>
-    <div class="queue-stats"><div class="queue-stat"><div class="n">Processing</div><div class="l">Queue status</div></div><div class="queue-stat"><div class="n">~3 min</div><div class="l">Est. wait</div></div></div>
-    <button class="primary-btn" onclick="toStep(3)">Simulate: Offer Received →</button>`;
-  else if (step===3) body.innerHTML = `
-    <div class="step-title">Seat offer received</div>
-    <div class="step-sub">Gemini evaluates the offer, then a separate deterministic engine re-checks before anything settles.</div>
-    <div class="reasoning-banner"><b>Gemini:</b> "The offered seat's grade (${EVENT.offer.grade}) and price (${krw(EVENT.offer.price)}) satisfy the buyer's primary preference conditions (grade ${EVENT.primary.grade}, max ${krw(EVENT.primary.max)})."</div>
-    <div class="offer-card"><div><div class="grade">${EVENT.offer.grade} Grade</div><div style="font-size:11px;color:var(--muted);">Seat ${EVENT.offer.seat} · Primary match</div></div><div class="price">${krw(EVENT.offer.price)}</div></div>
-    <div class="verify-pill"><span class="ck">✓</span> Deterministic verification passed — settling on-chain</div>
-    <button class="primary-btn" onclick="toStep(4)">View Settlement →</button>`;
-  else if (step===4) body.innerHTML = `
-    <div class="result-hero"><div class="icon">✓</div><h3>Settled on Solana Devnet</h3><p>Funds released from escrow the instant conditions were verified.</p></div>
-    <div class="tx-card"><div class="tlabel">DEPOSIT TX</div><div class="thash">56zgAaBxggETBVypnU36QgbxFQa4j4QcCuUnA3y5vUT9hXyBc3USfrwhW8ZTX8iTXkDpuaBAY6JLNZvsmAUyysxh</div></div>
-    <div class="tx-card"><div class="tlabel">SETTLE TX</div><div class="thash">5c58smLm6gixRQz2VMdocKFSXYFcwwNZZzieZJYBmnDAD2yZBLt58YzFsjYVUBDJoxo9yAFr2zD9ptNwkB6Sdf2e</div></div>
-    <a class="explorer-link" href="#" onclick="return false;">View on Solana Explorer ↗</a>`;
-}
-function toStep(n){ step=n; render(); }
+// Live booking flow is implemented in portal.js.
 </script>
+<script src="./portal.js"></script>
 </body>
 </html>

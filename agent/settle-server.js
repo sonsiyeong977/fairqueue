@@ -6,6 +6,7 @@ const express = require("express");
 const anchor = require("@coral-xyz/anchor");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { Connection, Keypair, LAMPORTS_PER_SOL, SystemProgram, clusterApiUrl, PublicKey } = require("@solana/web3.js");
+const { offerMatchesRule } = require("./offer-policy");
 
 const app = express();
 app.use(express.json());
@@ -25,7 +26,10 @@ const agentWallet = Keypair.fromSecretKey(Uint8Array.from(agentSecret));
 
 const sellerWallet = process.env.SELLER_PUBKEY
   ? { publicKey: new PublicKey(process.env.SELLER_PUBKEY) }
-  : Keypair.generate();
+  : { publicKey: agentWallet.publicKey };
+if (!process.env.SELLER_PUBKEY) {
+  console.warn("SELLER_PUBKEY is unset; Devnet demo payouts return to the agent wallet.");
+}
 
 // ── Anchor client ──────────────────────────────
 const idl = require("../anchor-escrow/idl/anchor_escrow.json");
@@ -167,49 +171,63 @@ ${JSON.stringify(userConditions, null, 2)}
 제안된 좌석:
 ${JSON.stringify(offeredSeat, null, 2)}
 `;
-  const result = await model.generateContent(prompt);
+  const englishPrompt = `You review a ticket seat offer against the buyer's approved conditions.
+Return JSON only in this exact shape:
+{"decision":"SETTLE_PRIMARY|SETTLE_FALLBACK|REFUND","reasoning":"one concise English sentence"}
+
+Rules:
+1. SETTLE_PRIMARY only when the offer matches the primary grade, optional zone_id, quantity, and price cap.
+2. SETTLE_FALLBACK only when it matches one of the fallback rules.
+3. Otherwise return REFUND.
+4. Write reasoning in English and do not claim that payment has completed.
+
+Buyer conditions:
+${JSON.stringify(userConditions, null, 2)}
+
+Seat offer:
+${JSON.stringify(offeredSeat, null, 2)}`;
+  const result = await model.generateContent(englishPrompt);
   const cleaned = result.response.text().replace(/```json|```/g, "").trim();
   return JSON.parse(cleaned);
 }
 
 // ── 결정론적 검증 레이어 ──────────────────────────────
-function deterministicDecisionOnly(userConditions, offeredSeat) {
+function offerMatchesRequest(userConditions, offeredSeat, event, userId) {
+  return offeredSeat &&
+    offeredSeat.event === event &&
+    offeredSeat.user_id === userId &&
+    Number(offeredSeat.count) === Number(userConditions.seat_count) &&
+    Number(offeredSeat.price_krw) > 0;
+}
+
+function deterministicDecisionOnly(userConditions, offeredSeat, event, userId) {
   if (!offeredSeat) return "REFUND";
+  if (!offerMatchesRequest(userConditions, offeredSeat, event, userId)) return "REFUND";
 
   const { primary, fallback_rules = [] } = userConditions;
-  const primaryPriceCap = Number(primary.max_price_krw || offeredSeat.price_krw);
-  const matchesPrimary =
-    offeredSeat.grade === primary.grade &&
-    offeredSeat.price_krw <= primaryPriceCap;
+  const matchesPrimary = offerMatchesRule(offeredSeat, primary);
 
   if (matchesPrimary) return "SETTLE_PRIMARY";
 
-  const matchesFallback = fallback_rules.some(
-    (rule) => offeredSeat.grade === rule.grade && offeredSeat.price_krw <= Number(rule.max_price_krw || offeredSeat.price_krw)
-  );
+  const matchesFallback = fallback_rules.some((rule) => offerMatchesRule(offeredSeat, rule));
 
   return matchesFallback ? "SETTLE_FALLBACK" : "REFUND";
 }
 
-function verifyDecisionDeterministically(userConditions, offeredSeat, geminiDecision) {
-  if (!offeredSeat) {
+function verifyDecisionDeterministically(userConditions, offeredSeat, geminiDecision, event, userId) {
+  if (!offerMatchesRequest(userConditions, offeredSeat, event, userId)) {
     return {
       finalDecision: "REFUND",
       overridden: geminiDecision.decision !== "REFUND",
-      verifyNote: "제안된 좌석 없음 → 강제 REFUND",
+      verifyNote: offeredSeat
+        ? "Offer event, user, quantity, or price does not match the request"
+        : "제안된 좌석 없음 → 강제 REFUND",
     };
   }
 
   const { primary, fallback_rules = [] } = userConditions;
-  const primaryPriceCap = Number(primary.max_price_krw || offeredSeat.price_krw);
-
-  const matchesPrimary =
-    offeredSeat.grade === primary.grade &&
-    offeredSeat.price_krw <= primaryPriceCap;
-
-  const matchesFallback = fallback_rules.some(
-    (rule) => offeredSeat.grade === rule.grade && offeredSeat.price_krw <= Number(rule.max_price_krw || offeredSeat.price_krw)
-  );
+  const matchesPrimary = offerMatchesRule(offeredSeat, primary);
+  const matchesFallback = fallback_rules.some((rule) => offerMatchesRule(offeredSeat, rule));
 
   let correctDecision;
   if (matchesPrimary) correctDecision = "SETTLE_PRIMARY";
@@ -251,7 +269,7 @@ app.post("/settle", requireApiKey, async (req, res) => {
       try {
         geminiDecision = await decideOffer(user_conditions, offered_seat);
       } catch (geminiError) {
-        const fallbackDecision = deterministicDecisionOnly(user_conditions, offered_seat);
+        const fallbackDecision = deterministicDecisionOnly(user_conditions, offered_seat, event, user_id);
         console.warn(`   Gemini 호출 실패, 결정론적 검증 레이어로 계속 진행: ${geminiError.message}`);
         geminiDecision = {
           decision: fallbackDecision,
@@ -265,7 +283,9 @@ app.post("/settle", requireApiKey, async (req, res) => {
     const verification = verifyDecisionDeterministically(
       user_conditions,
       offered_seat,
-      geminiDecision
+      geminiDecision,
+      event,
+      user_id
     );
     console.log("   결정론적 검증:", verification);
 
