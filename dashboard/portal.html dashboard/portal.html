@@ -45,6 +45,25 @@
 
   .hero { position:relative; z-index:2; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 20px; text-align:center; }
 
+  /* back to the ticketing site */
+  .back-link {
+    position:fixed; top:18px; left:20px; z-index:20; display:inline-flex; align-items:center; gap:8px;
+    padding:9px 16px; border-radius:999px; text-decoration:none; font-size:13px; font-weight:500;
+    color: var(--text); background: rgba(255,255,255,.05); border:1px solid var(--line);
+    backdrop-filter: blur(8px); transition: background .2s ease, border-color .2s ease;
+  }
+  .back-link:hover { background: rgba(255,255,255,.1); border-color: rgba(79,216,255,.4); }
+  .back-link:focus-visible, .cta:focus-visible { outline:2px solid var(--cyan); outline-offset:3px; }
+
+  /* shows which concert the visitor came from */
+  .event-chip {
+    position:relative; z-index:2; display:inline-flex; align-items:center; gap:10px; margin:0 0 22px;
+    padding:8px 16px; border-radius:999px; font-size:13px; color: var(--text);
+    background: rgba(79,216,255,.08); border:1px solid rgba(79,216,255,.3);
+  }
+  .event-chip[hidden] { display:none; }
+  .event-chip .muted { color: var(--muted); }
+
   /* portal glow */
   .portal-glow {
     position:absolute; top:50%; left:50%; width:620px; height:620px;
@@ -235,6 +254,8 @@
 <div class="shooting shoot2"></div>
 <div class="vignette"></div>
 
+<a class="back-link" id="backLink" href="../index.html">&larr; Back to ticketing site</a>
+
 <div class="hero">
   <div class="portal-glow"></div>
   <div class="ring ring3"></div>
@@ -260,6 +281,12 @@
 
   <h1 class="title">Enter the Queue</h1>
   <p class="tagline">An AI agent holds your place in the official line. The moment your turn comes, a deterministic engine settles or refunds you on Solana — instantly, on-chain, no macros.</p>
+
+  <div class="event-chip" id="eventChip" hidden>
+    <span class="muted">Booking for</span>
+    <strong id="eventChipName"></strong>
+    <span class="muted" id="eventChipMeta"></span>
+  </div>
 
   <button class="cta" onclick="openModal()">
     <svg viewBox="0 0 24 24" fill="none" stroke="#05070f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a3 3 0 0 0 0 6v2a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-2a3 3 0 0 1 0-6V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1z"/><path d="M13 5v2M13 17v2M13 11v2"/></svg>
@@ -313,6 +340,63 @@ function draw(){
 }
 window.addEventListener('resize', resize); resize(); draw();
 
+// ---- Config: edit these two things ------------------------------------
+// 1) Where the "Back" link goes when we can't tell where the visitor came from.
+//    Path is relative to THIS file. If portal.html sits in /dashboard/ and the
+//    ticketing site's home is /index.html, "../index.html" is correct.
+const TICKETING_HOME = '../index.html';
+
+// 2) Events the ticketing site can send people from. The ticketing site links here as:
+//      portal.html?event=iu-her
+//    Add one entry per concert. Prices are in KRW.
+const EVENTS = {
+  'iu-her': {
+    name: 'IU CONCERT [H.E.R]',
+    venue: 'KSPO DOME',
+    date: 'Sun, Aug 23 2026',
+    primary:  { grade: 'R', max: 200000 },
+    fallback: { grade: 'S', max: 120000 },
+    qty: 1,
+    offer: { grade: 'R', seat: 'R-A', price: 198000 }
+  }
+};
+const DEFAULT_EVENT = {
+  name: null, venue: null, date: null,
+  primary:  { grade: 'R', max: 200000 },
+  fallback: { grade: 'S', max: 120000 },
+  qty: 1,
+  offer: { grade: 'R', seat: 'R-A', price: 198000 }
+};
+// ------------------------------------------------------------------------
+
+const krw = n => n.toLocaleString('en-US') + ' KRW';
+const params = new URLSearchParams(location.search);
+const EVENT = EVENTS[params.get('event')] || DEFAULT_EVENT;
+
+// Event chip + page title
+if (EVENT.name) {
+  document.getElementById('eventChipName').textContent = EVENT.name;
+  document.getElementById('eventChipMeta').textContent = [EVENT.venue, EVENT.date].filter(Boolean).join(' · ');
+  document.getElementById('eventChip').hidden = false;
+  document.title = 'FairQueue · ' + EVENT.name;
+}
+
+// Back link: return to the page the visitor came from if it is on our own site,
+// otherwise fall back to TICKETING_HOME.
+(function setBackLink(){
+  const back = document.getElementById('backLink');
+  try {
+    if (document.referrer) {
+      const ref = new URL(document.referrer);
+      if (ref.origin === location.origin && ref.pathname !== location.pathname) {
+        back.href = ref.href;
+        return;
+      }
+    }
+  } catch (e) { /* keep fallback */ }
+  back.href = TICKETING_HOME;
+})();
+
 // modal flow (mock data – wire to real API later)
 let step = 0;
 const overlay = document.getElementById('overlay');
@@ -325,18 +409,17 @@ function render(){
   if (step===0) body.innerHTML = `
     <div class="step-title">Set your purchase conditions</div>
     <div class="step-sub">Tell the agent what you want in plain English — it will wait in the official queue and settle automatically when your turn comes.</div>
-    <textarea placeholder="e.g. Get me 2 adjacent R-grade seats under 190,000 KRW. If not available, S-grade under 120,000 KRW is fine too."></textarea>
-    <div class="field-row"><div class="field"><label>Max budget</label><input placeholder="Leave blank for face value"></div><div class="field"><label>Quantity</label><input value="1"></div></div>
+    <textarea placeholder="e.g. Get me ${EVENT.qty} ${EVENT.primary.grade}-grade seat${EVENT.qty>1?'s':''} under ${krw(EVENT.primary.max)}. If not available, ${EVENT.fallback.grade}-grade under ${krw(EVENT.fallback.max)} is fine too."></textarea>
+    <div class="field-row"><div class="field"><label>Max budget</label><input placeholder="Leave blank for face value"></div><div class="field"><label>Quantity</label><input value="${EVENT.qty}"></div></div>
     <button class="primary-btn" onclick="toStep(1)">Interpret with Gemini →</button>`;
   else if (step===1) body.innerHTML = `
     <div class="step-title">Gemini interpreted your request</div>
     <div class="step-sub">Confirm this is what you meant before the agent joins the official queue.</div>
     <div class="agreed-pill"><span class="dot"></span> AGREED &amp; PARSED</div>
     <div class="parsed-card">
-      <div class="parsed-row"><span class="k">Primary seat grade</span><span class="v">R</span></div>
-      <div class="parsed-row"><span class="k">Fallback seat grade</span><span class="v">S</span></div>
-      <div class="parsed-row"><span class="k">Max price</span><span class="v">190,000 KRW</span></div>
-      <div class="parsed-row"><span class="k">Quantity</span><span class="v">2 (adjacent)</span></div>
+      <div class="parsed-row"><span class="k">Primary seat grade</span><span class="v">${EVENT.primary.grade} (up to ${krw(EVENT.primary.max)})</span></div>
+      <div class="parsed-row"><span class="k">Fallback seat grade</span><span class="v">${EVENT.fallback.grade} (up to ${krw(EVENT.fallback.max)})</span></div>
+      <div class="parsed-row"><span class="k">Quantity</span><span class="v">${EVENT.qty}</span></div>
     </div>
     <button class="primary-btn" onclick="toStep(2)">Confirm &amp; Join Official Queue →</button>
     <button class="ghost-btn" onclick="toStep(0)">← Edit conditions</button>`;
@@ -349,8 +432,8 @@ function render(){
   else if (step===3) body.innerHTML = `
     <div class="step-title">Seat offer received</div>
     <div class="step-sub">Gemini evaluates the offer, then a separate deterministic engine re-checks before anything settles.</div>
-    <div class="reasoning-banner"><b>Gemini:</b> "The offered seat's grade (R) and price (198,000 KRW) satisfy the buyer's primary preference conditions (grade R, max 200,000 KRW)."</div>
-    <div class="offer-card"><div><div class="grade">R Grade</div><div style="font-size:11px;color:var(--muted);">Seat R-A · Primary match</div></div><div class="price">198,000 KRW</div></div>
+    <div class="reasoning-banner"><b>Gemini:</b> "The offered seat's grade (${EVENT.offer.grade}) and price (${krw(EVENT.offer.price)}) satisfy the buyer's primary preference conditions (grade ${EVENT.primary.grade}, max ${krw(EVENT.primary.max)})."</div>
+    <div class="offer-card"><div><div class="grade">${EVENT.offer.grade} Grade</div><div style="font-size:11px;color:var(--muted);">Seat ${EVENT.offer.seat} · Primary match</div></div><div class="price">${krw(EVENT.offer.price)}</div></div>
     <div class="verify-pill"><span class="ck">✓</span> Deterministic verification passed — settling on-chain</div>
     <button class="primary-btn" onclick="toStep(4)">View Settlement →</button>`;
   else if (step===4) body.innerHTML = `
