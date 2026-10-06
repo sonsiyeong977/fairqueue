@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FairQueue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --void: #05070f;
+    --panel: #0b0f1f;
+    --panel-2: #10152b;
+    --cyan: #4fd8ff;
+    --violet: #a855f7;
+    --green: #14f195;
+    --text: #f4f6fb;
+    --muted: #8993b3;
+    --line: rgba(255,255,255,.08);
+  }
+  * { box-sizing: border-box; }
+  html,body { margin:0; padding:0; background: var(--void); color: var(--text); font-family: 'Space Grotesk', sans-serif; overflow-x:hidden; }
+  body { min-height:100vh; position:relative; }
+
+  canvas#stars { position:fixed; inset:0; z-index:0; }
+
+  /* nebula color wash — fills the dead black space with galaxy atmosphere */
+  .nebula { position:fixed; inset:0; z-index:0; pointer-events:none; }
+  .nebula span { position:absolute; border-radius:50%; filter: blur(70px); mix-blend-mode: screen; }
+  .nebula .n1 { width:620px; height:460px; left:-140px; top:-120px; background: radial-gradient(circle, rgba(79,216,255,.22), transparent 70%); animation: drift1 22s ease-in-out infinite; }
+  .nebula .n2 { width:560px; height:560px; right:-160px; top:10%; background: radial-gradient(circle, rgba(168,85,247,.2), transparent 70%); animation: drift2 26s ease-in-out infinite; }
+  .nebula .n3 { width:520px; height:420px; left:8%; bottom:-180px; background: radial-gradient(circle, rgba(236,72,153,.14), transparent 70%); animation: drift1 30s ease-in-out infinite reverse; }
+  .nebula .n4 { width:420px; height:420px; right:6%; bottom:-200px; background: radial-gradient(circle, rgba(20,241,149,.1), transparent 70%); animation: drift2 24s ease-in-out infinite reverse; }
+  @keyframes drift1 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(30px,20px); } }
+  @keyframes drift2 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(-25px,25px); } }
+
+  .vignette { position:fixed; inset:0; z-index:1; pointer-events:none; background: radial-gradient(ellipse at center, transparent 35%, rgba(5,7,15,.55) 85%, rgba(5,7,15,.85) 100%); }
+
+  /* shooting stars */
+  .shooting { position:fixed; z-index:1; width:2px; height:2px; background:#fff; border-radius:50%; box-shadow: 0 0 6px 1px #fff; opacity:0; }
+  .shooting::before { content:""; position:absolute; top:50%; right:0; width:90px; height:1px; transform: translateY(-50%); background: linear-gradient(90deg, rgba(255,255,255,.9), transparent); }
+  .shoot1 { top:14%; left:65%; animation: shoot 7s linear infinite; animation-delay: 1s; }
+  .shoot2 { top:60%; left:8%; animation: shoot 9s linear infinite; animation-delay: 4.5s; }
+  @keyframes shoot { 0% { opacity:0; transform: translate(0,0); } 2% { opacity:1; } 14% { opacity:0; transform: translate(-260px,160px); } 100% { opacity:0; } }
+
+  .hero { position:relative; z-index:2; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 20px; text-align:center; }
+
+  /* portal glow */
+  .portal-glow {
+    position:absolute; top:50%; left:50%; width:620px; height:620px;
+    transform: translate(-50%,-56%);
+    background: radial-gradient(circle, rgba(79,216,255,.22) 0%, rgba(168,85,247,.16) 35%, transparent 70%);
+    filter: blur(10px);
+    animation: pulse 5s ease-in-out infinite;
+    z-index:0;
+  }
+  @keyframes pulse { 0%,100% { opacity:.7; transform: translate(-50%,-56%) scale(1); } 50% { opacity:1; transform: translate(-50%,-56%) scale(1.06); } }
+
+  .ring { position:absolute; top:50%; left:50%; border-radius:50%; opacity:.55; }
+  .ring1 { width:380px; height:380px; margin:-190px 0 0 -190px; border:1px dashed rgba(79,216,255,.55); animation: spin 18s linear infinite; }
+  .ring2 { width:480px; height:480px; margin:-240px 0 0 -240px; border:1px dashed rgba(168,85,247,.4); animation: spin 26s linear infinite reverse; }
+  .ring3 { width:300px; height:300px; margin:-150px 0 0 -150px; border:1px solid rgba(255,255,255,.08); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .ring-node { position:absolute; width:7px; height:7px; border-radius:50%; background: var(--cyan); box-shadow: 0 0 10px 2px rgba(79,216,255,.8); top:-3.5px; left:50%; margin-left:-3.5px; }
+  .ring2 .ring-node { background: var(--violet); box-shadow: 0 0 10px 2px rgba(168,85,247,.8); }
+
+  /* orbiting embers around the ticket */
+  .embers { position:absolute; top:50%; left:50%; width:10px; height:10px; }
+  .ember { position:absolute; width:4px; height:4px; border-radius:50%; background: var(--cyan); box-shadow: 0 0 8px 2px rgba(79,216,255,.7); animation: orbit linear infinite; }
+  .ember:nth-child(2) { background: var(--violet); box-shadow: 0 0 8px 2px rgba(168,85,247,.7); animation-duration: 9s; }
+  .ember:nth-child(3) { background: var(--green); box-shadow: 0 0 8px 2px rgba(20,241,149,.7); animation-duration: 13s; animation-direction: reverse; }
+  .ember:nth-child(1) { animation-duration: 11s; }
+  @keyframes orbit { from { transform: rotate(0deg) translateX(210px) rotate(0deg); } to { transform: rotate(360deg) translateX(210px) rotate(-360deg); } }
+
+  /* 3D floating ticket */
+  .stage { perspective: 1200px; width:340px; height:200px; margin-bottom:38px; position:relative; z-index:2; }
+  .ticket3d {
+    width:100%; height:100%; position:relative; transform-style:preserve-3d;
+    animation: float 6s ease-in-out infinite, rotate3d 14s linear infinite;
+  }
+  @keyframes float { 0%,100% { transform: translateY(0) rotateX(8deg); } 50% { transform: translateY(-14px) rotateX(8deg); } }
+  @keyframes rotate3d { 0% { transform: rotateY(0deg) rotateX(8deg); } 100% { transform: rotateY(360deg) rotateX(8deg); } }
+
+  .ticket-face {
+    position:absolute; inset:0; border-radius:14px;
+    background: linear-gradient(135deg, #0d1230, #161b3e 55%, #1c1440);
+    border: 1.5px solid transparent;
+    background-clip: padding-box;
+    box-shadow: 0 0 40px rgba(79,216,255,.25), 0 0 70px rgba(168,85,247,.15), inset 0 0 30px rgba(255,255,255,.03);
+    backface-visibility: hidden;
+    display:flex; align-items:center; padding:0 26px;
+  }
+  .ticket-face::before {
+    content:""; position:absolute; inset:0; border-radius:14px; padding:1.5px;
+    background: linear-gradient(135deg, var(--cyan), var(--violet));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+  }
+  .ticket-face .stub {
+    position:absolute; right:68px; top:0; bottom:0; width:0; border-left:1px dashed rgba(255,255,255,.25);
+  }
+  .ticket-face .notch { position:absolute; right:60px; width:16px; height:16px; border-radius:50%; background: var(--void); }
+  .ticket-face .notch.top { top:-8px; }
+  .ticket-face .notch.bottom { bottom:-8px; }
+  .ticket-face .label { font-weight:700; font-size:22px; letter-spacing:.02em; background: linear-gradient(135deg,#fff,#cfe4ff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .ticket-face .sub { font-size:10.5px; color: var(--muted); margin-top:4px; letter-spacing:.03em; }
+  .ticket-face .side { position:absolute; right:14px; top:0; bottom:0; width:40px; display:flex; align-items:center; justify-content:center; writing-mode: vertical-rl; font-size:10px; letter-spacing:.3em; color: rgba(255,255,255,.3); }
+  .ticket-face .sheen {
+    position:absolute; inset:0; border-radius:14px; overflow:hidden; pointer-events:none;
+  }
+  .ticket-face .sheen::after {
+    content:""; position:absolute; top:-50%; left:-60%; width:40%; height:200%;
+    background: linear-gradient(75deg, transparent, rgba(255,255,255,.18), transparent);
+    animation: sheen 5s ease-in-out infinite;
+  }
+  @keyframes sheen { 0% { transform: translateX(0); } 100% { transform: translateX(480px); } }
+
+  h1.title {
+    font-size: clamp(40px, 7vw, 68px); font-weight:700; margin:0 0 10px; letter-spacing:-.01em; position:relative; z-index:2;
+    text-shadow: 0 0 30px rgba(79,216,255,.25), 0 0 60px rgba(168,85,247,.15);
+  }
+  p.tagline { font-size: clamp(14px,2vw,17px); color: var(--muted); max-width:520px; margin:0 0 34px; line-height:1.6; position:relative; z-index:2; }
+
+  .cta {
+    position:relative; z-index:2; display:inline-flex; align-items:center; gap:10px;
+    padding:16px 32px; border-radius:999px; border:none; cursor:pointer;
+    background: linear-gradient(135deg, var(--cyan), var(--violet));
+    color:#05070f; font-weight:700; font-size:15px; font-family:inherit;
+    box-shadow: 0 10px 40px rgba(79,216,255,.3);
+    transition: transform .2s ease, box-shadow .2s ease;
+    animation: cta-halo 2.8s ease-in-out infinite;
+  }
+  @keyframes cta-halo {
+    0%,100% { box-shadow: 0 10px 40px rgba(79,216,255,.3), 0 0 0 0 rgba(168,85,247,.25); }
+    50% { box-shadow: 0 10px 40px rgba(79,216,255,.35), 0 0 0 10px rgba(168,85,247,0); }
+  }
+  .cta:hover { transform: translateY(-2px); box-shadow: 0 14px 50px rgba(168,85,247,.4); }
+  .cta svg { width:16px; height:16px; }
+  .cta .pulse-dot { width:7px; height:7px; border-radius:50%; background: var(--green); box-shadow:0 0 8px var(--green); animation: blink 1.6s ease-in-out infinite; }
+  @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:.3; } }
+
+  .meta-row {
+    margin-top:26px; display:flex; align-items:center; color: var(--muted); font-size:11.5px;
+    font-family:'JetBrains Mono', monospace; position:relative; z-index:2;
+    background: rgba(255,255,255,.03); border:1px solid var(--line); border-radius:999px;
+    padding:9px 4px;
+  }
+  .meta-row span { padding:0 16px; }
+  .meta-row span + span { border-left:1px solid var(--line); }
+  .meta-row span b { color: var(--text); font-weight:500; }
+  .meta-row .live { color: var(--green); display:flex; align-items:center; gap:6px; }
+  .meta-row .live i { width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 6px var(--green); display:inline-block; animation: blink 1.6s ease-in-out infinite; }
+
+  /* ===== Modal reskin ===== */
+  .overlay { position:fixed; inset:0; background: rgba(2,3,10,.75); backdrop-filter: blur(6px); display:flex; align-items:center; justify-content:center; z-index:50; opacity:0; pointer-events:none; transition: opacity .3s ease; }
+  .overlay.open { opacity:1; pointer-events:auto; }
+  .modal {
+    width:560px; max-width:92vw; max-height:88vh; overflow:auto;
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border-radius:18px; border:1px solid var(--line);
+    box-shadow: 0 0 60px rgba(79,216,255,.12), 0 30px 80px rgba(0,0,0,.6);
+    transform: translateY(20px) scale(.98); transition: transform .3s ease;
+  }
+  .overlay.open .modal { transform: translateY(0) scale(1); }
+  .modal-head { padding:22px 26px 16px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:flex-start; }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .logo { width:32px; height:32px; border-radius:9px; background: linear-gradient(135deg,var(--cyan),var(--violet)); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; color:#05070f; }
+  .brand .name { font-weight:700; font-size:16px; }
+  .brand .tag { font-size:11px; color: var(--muted); margin-top:1px; }
+  .close-btn { background:none; border:none; color: var(--muted); font-size:22px; cursor:pointer; }
+
+  .steps-bar { display:flex; gap:6px; padding:18px 26px 0; }
+  .steps-bar .seg { flex:1; height:3px; border-radius:2px; background: var(--line); overflow:hidden; }
+  .steps-bar .seg .fill { height:100%; width:0; background: linear-gradient(90deg,var(--cyan),var(--violet)); transition: width .4s ease; }
+  .steps-bar .seg.done .fill { width:100%; }
+  .steps-bar .seg.active .fill { width:55%; }
+  .step-label-row { display:flex; justify-content:space-between; padding:8px 26px 0; font-size:10.5px; color: var(--muted); font-family:'JetBrains Mono',monospace; }
+
+  .modal-body { padding:22px 26px 26px; }
+  .step-title { font-size:19px; font-weight:700; margin:0 0 6px; }
+  .step-sub { font-size:13px; color: var(--muted); margin:0 0 18px; line-height:1.5; }
+
+  textarea { width:100%; height:64px; border-radius:10px; border:1px solid var(--line); background: rgba(255,255,255,.03); color:#fff; padding:12px; font-size:13px; resize:none; font-family:inherit; }
+  textarea::placeholder { color: rgba(255,255,255,.3); }
+  .field-row { display:flex; gap:10px; margin-top:12px; }
+  .field { flex:1; }
+  .field label { display:block; font-size:11px; color: var(--muted); margin-bottom:5px; }
+  .field input { width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--line); background: rgba(255,255,255,.03); color:#fff; font-size:13px; }
+
+  .primary-btn { width:100%; margin-top:18px; padding:13px; border:none; border-radius:10px; cursor:pointer; background: linear-gradient(135deg,var(--cyan),var(--violet)); color:#05070f; font-weight:700; font-size:14px; }
+  .ghost-btn { width:100%; margin-top:8px; padding:11px; border-radius:10px; cursor:pointer; background:transparent; border:1px solid var(--line); color: var(--text); font-size:13px; }
+
+  .agreed-pill { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; background: rgba(20,241,149,.12); color: var(--green); padding:4px 10px; border-radius:20px; margin-bottom:12px; font-family:'JetBrains Mono',monospace; }
+  .agreed-pill .dot { width:6px; height:6px; border-radius:50%; background: var(--green); }
+  .parsed-card { background: rgba(255,255,255,.03); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px; }
+  .parsed-row { display:flex; justify-content:space-between; font-size:13px; padding:6px 0; border-bottom:1px dashed var(--line); }
+  .parsed-row:last-child { border-bottom:none; }
+  .parsed-row .k { color: var(--muted); }
+  .parsed-row .v { font-weight:700; }
+
+  .queue-box { text-align:center; padding:8px 0 4px; }
+  .queue-caption { font-size:11px; color: var(--muted); font-family:'JetBrains Mono',monospace; }
+  .queue-num { font-size:44px; font-weight:700; margin:8px 0 16px; background: linear-gradient(135deg,var(--cyan),var(--violet)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .bar-bg { height:8px; border-radius:4px; background: var(--line); overflow:hidden; margin-bottom:18px; }
+  .bar-fill { height:100%; width:30%; background: linear-gradient(90deg,var(--cyan),var(--violet)); border-radius:4px; animation: grow 2.2s ease-in-out infinite alternate; }
+  @keyframes grow { from { width:20%; } to { width:62%; } }
+  .queue-stats { display:flex; gap:10px; }
+  .queue-stat { flex:1; background: rgba(255,255,255,.03); border:1px solid var(--line); border-radius:10px; padding:12px; text-align:center; }
+  .queue-stat .n { font-size:18px; font-weight:700; }
+  .queue-stat .l { font-size:11px; color: var(--muted); margin-top:2px; }
+
+  .reasoning-banner { background: rgba(79,216,255,.08); border:1px solid rgba(79,216,255,.3); border-radius:10px; padding:12px 14px; font-size:12.5px; line-height:1.5; margin-bottom:14px; }
+  .reasoning-banner b { color: var(--cyan); }
+  .offer-card { display:flex; justify-content:space-between; align-items:center; background: rgba(255,255,255,.03); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:12px; }
+  .offer-card .grade { font-size:22px; font-weight:700; }
+  .offer-card .price { font-size:16px; font-weight:700; color: var(--cyan); }
+  .verify-pill { display:flex; align-items:center; gap:8px; font-size:12px; color: var(--green); margin-bottom:14px; font-family:'JetBrains Mono',monospace; }
+  .verify-pill .ck { width:16px; height:16px; border-radius:50%; background: var(--green); color:#05070f; font-size:11px; display:flex; align-items:center; justify-content:center; font-weight:700; }
+
+  .result-hero { text-align:center; padding:6px 0 18px; }
+  .result-hero .icon { width:56px; height:56px; border-radius:50%; background: rgba(20,241,149,.12); color: var(--green); display:flex; align-items:center; justify-content:center; font-size:26px; margin:0 auto 12px; box-shadow:0 0 30px rgba(20,241,149,.25); }
+  .result-hero h3 { margin:0 0 4px; font-size:19px; }
+  .result-hero p { margin:0; color: var(--muted); font-size:13px; }
+  .tx-card { background: rgba(255,255,255,.03); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+  .tx-card .tlabel { font-size:10.5px; color: var(--muted); margin-bottom:4px; font-family:'JetBrains Mono',monospace; }
+  .tx-card .thash { font-family:'JetBrains Mono',monospace; font-size:11.5px; color: var(--cyan); word-break:break-all; }
+  .explorer-link { display:block; text-align:center; margin-top:14px; padding:12px; border-radius:10px; background: linear-gradient(135deg,var(--cyan),var(--violet)); color:#05070f; text-decoration:none; font-weight:700; font-size:13px; }
+</style>
+</head>
+<body>
+
+<canvas id="stars"></canvas>
+<div class="nebula"><span class="n1"></span><span class="n2"></span><span class="n3"></span><span class="n4"></span></div>
+<div class="shooting shoot1"></div>
+<div class="shooting shoot2"></div>
+<div class="vignette"></div>
+
+<div class="hero">
+  <div class="portal-glow"></div>
+  <div class="ring ring3"></div>
+  <div class="ring ring1"><div class="ring-node"></div></div>
+  <div class="ring ring2"><div class="ring-node"></div></div>
+  <div class="embers"><div class="ember"></div><div class="ember"></div><div class="ember"></div></div>
+
+  <div class="stage">
+    <div class="ticket3d">
+      <div class="ticket-face">
+        <div class="sheen"></div>
+        <div class="notch top"></div>
+        <div class="notch bottom"></div>
+        <div class="stub"></div>
+        <div>
+          <div class="label">FairQueue</div>
+          <div class="sub">AI AGENT · ON-CHAIN SETTLED</div>
+        </div>
+        <div class="side">SOLANA DEVNET</div>
+      </div>
+    </div>
+  </div>
+
+  <h1 class="title">Enter the Queue</h1>
+  <p class="tagline">An AI agent holds your place in the official line. The moment your turn comes, a deterministic engine settles or refunds you on Solana — instantly, on-chain, no macros.</p>
+
+  <button class="cta" onclick="openModal()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#05070f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a3 3 0 0 0 0 6v2a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-2a3 3 0 0 1 0-6V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1z"/><path d="M13 5v2M13 17v2M13 11v2"/></svg>
+    Book with FairQueue AI Agent
+  </button>
+
+  <div class="meta-row">
+    <span class="live"><i></i> Devnet live</span>
+    <span>Program <b>618w9Lmn...ciwjJuj</b></span>
+    <span>2 tx / order</span>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="brand">
+        <div class="logo">FQ</div>
+        <div><div class="name">FairQueue</div><div class="tag">AI-settled, on-chain guaranteed</div></div>
+      </div>
+      <button class="close-btn" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="steps-bar" id="stepsBar">
+      <div class="seg" data-i="0"><div class="fill"></div></div>
+      <div class="seg" data-i="1"><div class="fill"></div></div>
+      <div class="seg" data-i="2"><div class="fill"></div></div>
+      <div class="seg" data-i="3"><div class="fill"></div></div>
+    </div>
+    <div class="step-label-row"><span>Conditions</span><span>Queue</span><span>Offer</span><span>Settlement</span></div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+// starfield
+const canvas = document.getElementById('stars');
+const ctx = canvas.getContext('2d');
+let w,h,stars;
+function resize(){ w=canvas.width=window.innerWidth; h=canvas.height=window.innerHeight;
+  stars = Array.from({length: 140}, () => ({ x: Math.random()*w, y: Math.random()*h, r: Math.random()*1.3+.2, s: Math.random()*.5+.15, a: Math.random() })); }
+function draw(){
+  ctx.clearRect(0,0,w,h);
+  ctx.fillStyle = '#05070f'; ctx.fillRect(0,0,w,h);
+  for (const st of stars) {
+    st.a += st.s*0.02;
+    const op = 0.4 + Math.sin(st.a)*0.4;
+    ctx.beginPath(); ctx.fillStyle = `rgba(200,220,255,${Math.max(0,op)})`;
+    ctx.arc(st.x, st.y, st.r, 0, Math.PI*2); ctx.fill();
+  }
+  requestAnimationFrame(draw);
+}
+window.addEventListener('resize', resize); resize(); draw();
+
+// modal flow (mock data – wire to real API later)
+let step = 0;
+const overlay = document.getElementById('overlay');
+const body = document.getElementById('modalBody');
+function openModal(){ overlay.classList.add('open'); step=0; render(); }
+function closeModal(){ overlay.classList.remove('open'); }
+function setBar(active){ document.querySelectorAll('.seg').forEach((seg,i)=>{ seg.classList.remove('done','active'); if(i<active) seg.classList.add('done'); else if(i===active) seg.classList.add('active'); }); }
+function render(){
+  setBar(step);
+  if (step===0) body.innerHTML = `
+    <div class="step-title">Set your purchase conditions</div>
+    <div class="step-sub">Tell the agent what you want in plain English — it will wait in the official queue and settle automatically when your turn comes.</div>
+    <textarea placeholder="e.g. Get me 2 adjacent R-grade seats under 190,000 KRW. If not available, S-grade under 120,000 KRW is fine too."></textarea>
+    <div class="field-row"><div class="field"><label>Max budget</label><input placeholder="Leave blank for face value"></div><div class="field"><label>Quantity</label><input value="1"></div></div>
+    <button class="primary-btn" onclick="toStep(1)">Interpret with Gemini →</button>`;
+  else if (step===1) body.innerHTML = `
+    <div class="step-title">Gemini interpreted your request</div>
+    <div class="step-sub">Confirm this is what you meant before the agent joins the official queue.</div>
+    <div class="agreed-pill"><span class="dot"></span> AGREED &amp; PARSED</div>
+    <div class="parsed-card">
+      <div class="parsed-row"><span class="k">Primary seat grade</span><span class="v">R</span></div>
+      <div class="parsed-row"><span class="k">Fallback seat grade</span><span class="v">S</span></div>
+      <div class="parsed-row"><span class="k">Max price</span><span class="v">190,000 KRW</span></div>
+      <div class="parsed-row"><span class="k">Quantity</span><span class="v">2 (adjacent)</span></div>
+    </div>
+    <button class="primary-btn" onclick="toStep(2)">Confirm &amp; Join Official Queue →</button>
+    <button class="ghost-btn" onclick="toStep(0)">← Edit conditions</button>`;
+  else if (step===2) body.innerHTML = `
+    <div class="step-title">Waiting in the official queue</div>
+    <div class="step-sub">No bypass, no macros — your agent holds the same position you'd have yourself.</div>
+    <div class="queue-box"><div class="queue-caption">YOUR POSITION</div><div class="queue-num">#51</div><div class="bar-bg"><div class="bar-fill"></div></div></div>
+    <div class="queue-stats"><div class="queue-stat"><div class="n">Processing</div><div class="l">Queue status</div></div><div class="queue-stat"><div class="n">~3 min</div><div class="l">Est. wait</div></div></div>
+    <button class="primary-btn" onclick="toStep(3)">Simulate: Offer Received →</button>`;
+  else if (step===3) body.innerHTML = `
+    <div class="step-title">Seat offer received</div>
+    <div class="step-sub">Gemini evaluates the offer, then a separate deterministic engine re-checks before anything settles.</div>
+    <div class="reasoning-banner"><b>Gemini:</b> "The offered seat's grade (R) and price (198,000 KRW) satisfy the buyer's primary preference conditions (grade R, max 200,000 KRW)."</div>
+    <div class="offer-card"><div><div class="grade">R Grade</div><div style="font-size:11px;color:var(--muted);">Seat R-A · Primary match</div></div><div class="price">198,000 KRW</div></div>
+    <div class="verify-pill"><span class="ck">✓</span> Deterministic verification passed — settling on-chain</div>
+    <button class="primary-btn" onclick="toStep(4)">View Settlement →</button>`;
+  else if (step===4) body.innerHTML = `
+    <div class="result-hero"><div class="icon">✓</div><h3>Settled on Solana Devnet</h3><p>Funds released from escrow the instant conditions were verified.</p></div>
+    <div class="tx-card"><div class="tlabel">DEPOSIT TX</div><div class="thash">56zgAaBxggETBVypnU36QgbxFQa4j4QcCuUnA3y5vUT9hXyBc3USfrwhW8ZTX8iTXkDpuaBAY6JLNZvsmAUyysxh</div></div>
+    <div class="tx-card"><div class="tlabel">SETTLE TX</div><div class="thash">5c58smLm6gixRQz2VMdocKFSXYFcwwNZZzieZJYBmnDAD2yZBLt58YzFsjYVUBDJoxo9yAFr2zD9ptNwkB6Sdf2e</div></div>
+    <a class="explorer-link" href="#" onclick="return false;">View on Solana Explorer ↗</a>`;
+}
+function toStep(n){ step=n; render(); }
+</script>
+</body>
+</html>
