@@ -55,7 +55,7 @@ test("catalog performances keep queue, inventory, and settlement separate", asyn
   process.env.TURN_INTERVAL_MS = "20";
   process.env.HOLD_TTL_MS = "10";
   process.env.GEMINI_API_KEY = "";
-  const { app, sessionIsOnSale } = require("../platform-sim/server");
+  const { app, sessionIsOnSale, catalogCondition, catalogBySession } = require("../platform-sim/server");
   const platformServer = http.createServer(app);
   const port = await listen(platformServer);
   base = `http://127.0.0.1:${port}`;
@@ -115,6 +115,35 @@ test("catalog performances keep queue, inventory, and settlement separate", asyn
     assert.equal(gradeThenZone.body.parsed.fallback_rules[0].zone_id, "r-1");
     assert.equal(gradeThenZone.body.parsed.adjacency_required, false);
 
+    const naturalLanguagePlan = catalogCondition(
+      "시야제한석을 피해서 VIP석 연속 2매. 안 되면 각각 한 좌석씩, 그것도 안 되면 R석 2연석.",
+      catalogBySession.get("orbit-1120"),
+      {
+        primary: {
+          grade: "VIP", zone_id: null, max_price_krw: null,
+          adjacency_required: true, allow_split_seats: false, avoid_restricted_view: true,
+        },
+        fallback_rules: [
+          {
+            grade: "VIP", zone_id: null, max_price_krw: null,
+            adjacency_required: false, allow_split_seats: true, avoid_restricted_view: true,
+          },
+          {
+            grade: "R", zone_id: null, max_price_krw: null,
+            adjacency_required: true, allow_split_seats: false, avoid_restricted_view: true,
+          },
+        ],
+        seat_count: 2,
+      }
+    );
+    assert.equal(naturalLanguagePlan.primary.adjacency_required, true);
+    assert.equal(naturalLanguagePlan.primary.avoid_restricted_view, true);
+    assert.equal(naturalLanguagePlan.fallback_rules.length, 2);
+    assert.equal(naturalLanguagePlan.fallback_rules[0].grade, "VIP");
+    assert.equal(naturalLanguagePlan.fallback_rules[0].allow_split_seats, true);
+    assert.equal(naturalLanguagePlan.fallback_rules[1].grade, "R");
+    assert.equal(naturalLanguagePlan.fallback_rules[1].adjacency_required, true);
+
     const gardenEarly = await request(base, "/queue/join", {
       event: "garden-1105", user_id: "early", conditions: {
         primary: { grade: "R", zone_id: "garden-r", max_price_krw: 140000 },
@@ -155,6 +184,27 @@ test("catalog performances keep queue, inventory, and settlement separate", asyn
     });
     assert.equal(sameGradeFallback.settle_result.final_decision, "SETTLE_FALLBACK");
     assert.equal(sameGradeFallback.order.zone_id, "vip-b");
+
+    const orderedFallback = await book("orbit-1120", {
+      primary: {
+        grade: "VIP", zone_id: "vip-a", max_price_krw: 176000,
+        adjacency_required: true, allow_split_seats: false,
+      },
+      fallback_rules: [
+        {
+          grade: "VIP", zone_id: "vip-b", max_price_krw: 100000,
+          adjacency_required: false, allow_split_seats: true,
+        },
+        {
+          grade: "R", zone_id: "r-1", max_price_krw: 154000,
+          adjacency_required: true, allow_split_seats: false,
+        },
+      ],
+      seat_count: 2,
+    });
+    assert.equal(orderedFallback.settle_result.final_decision, "SETTLE_FALLBACK");
+    assert.equal(orderedFallback.offered_seat.zone_id, "r-1");
+    assert.equal(orderedFallback.offered_seat.matched_rule_index, 2);
 
     const festival = await book("field-1024", {
       primary: { grade: "1DAY", max_price_krw: 109000 }, fallback_rules: [],

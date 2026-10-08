@@ -3,7 +3,10 @@ const test = require("node:test");
 const { offerMatchesRule } = require("../agent/offer-policy");
 
 test("settlement policy checks exact zones and ticket prices", () => {
-  const offer = { grade: "VIP", zone_id: "vip-b", price_krw: 176000 };
+  const offer = {
+    grade: "VIP", zone_id: "vip-b", price_krw: 176000,
+    seat_numbers: [17, 18], restricted_view: false,
+  };
   assert.equal(offerMatchesRule(offer, {
     grade: "VIP", zone_id: "vip-a", max_price_krw: 176000,
   }), false);
@@ -15,5 +18,14 @@ test("settlement policy checks exact zones and ticket prices", () => {
   }), false);
   assert.equal(offerMatchesRule(offer, {
     grade: "VIP", max_price_krw: 176000,
+  }), true);
+  assert.equal(offerMatchesRule({ ...offer, restricted_view: true }, {
+    grade: "VIP", max_price_krw: 176000, avoid_restricted_view: true,
+  }), false);
+  assert.equal(offerMatchesRule({ ...offer, seat_numbers: [17, 21] }, {
+    grade: "VIP", max_price_krw: 176000, adjacency_required: true,
+  }), false);
+  assert.equal(offerMatchesRule({ ...offer, seat_numbers: [17, 21] }, {
+    grade: "VIP", max_price_krw: 176000, adjacency_required: true, allow_split_seats: true,
   }), true);
 });

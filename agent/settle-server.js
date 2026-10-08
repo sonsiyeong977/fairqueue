@@ -14,7 +14,7 @@ app.use(express.json());
 const PORT = Number(process.env.PORT || 4000);
 const CLUSTER = process.env.SOLANA_CLUSTER || "devnet";
 const RPC_URL = process.env.SOLANA_RPC_URL || clusterApiUrl(CLUSTER);
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const connection = new Connection(RPC_URL, "confirmed");
@@ -176,8 +176,8 @@ Return JSON only in this exact shape:
 {"decision":"SETTLE_PRIMARY|SETTLE_FALLBACK|REFUND","reasoning":"one concise English sentence"}
 
 Rules:
-1. SETTLE_PRIMARY only when the offer matches the primary grade, optional zone_id, quantity, and price cap.
-2. SETTLE_FALLBACK only when it matches one of the fallback rules.
+1. SETTLE_PRIMARY only when the offer matches the primary grade, optional zone_id, quantity, price cap, adjacency policy, and restricted-view policy.
+2. SETTLE_FALLBACK only when it matches one fallback rule, including that rule's placement and restricted-view policy.
 3. Otherwise return REFUND.
 4. Write reasoning in English and do not claim that payment has completed.
 

@@ -20,7 +20,7 @@ const TURN_INTERVAL_MS = Number(process.env.TURN_INTERVAL_MS || 8000);
 const HOLD_TTL_MS = Number(process.env.HOLD_TTL_MS || 60_000);
 const SETTLE_SERVER_URL = process.env.SETTLE_SERVER_URL || "http://localhost:4000";
 const SETTLE_API_KEY = process.env.SETTLE_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
 
 const defaultEventName = "IU Concert";
@@ -64,6 +64,7 @@ for (const event of catalog) {
         label: zone.label,
         grade: zone.grade,
         price_krw: zone.price,
+        restricted_view: Boolean(zone.restrictedView),
         capacity: zone.capacity,
         count: zone.remaining,
         available_numbers: event.genre === "Festival"
@@ -109,6 +110,9 @@ function catalogCondition(text, record, proposed = {}, defaults = {}) {
   const fallbackCue = /\b(?:or|else|otherwise|fallback)\b|\bif\s+(?:not|unavailable|sold\s*out)|없으면|안\s*되면|대안|못\s*잡으면/i.exec(text);
   const countMatch = text.match(/(\d+)\s*(?:adjacent\s*)?(?:tickets?|seats?|spots?|연석|매|장)/i);
   const count = Number(proposed.seat_count || countMatch?.[1] || defaults.seat_count || 1);
+  if (!Number.isInteger(count) || count < 1 || count > event.maxTickets) {
+    throw httpError(400, `Choose between 1 and ${event.maxTickets} tickets`);
+  }
   const primaryGradeHint = proposed.primary?.grade || firstMention?.grade || defaults.primary?.grade || grades[0];
   const primaryMention = zoneMentions.find((mention) =>
     mention.zone.grade === primaryGradeHint && (!fallbackCue || mention.index < fallbackCue.index));
@@ -134,29 +138,79 @@ function catalogCondition(text, record, proposed = {}, defaults = {}) {
   const totalBudget = /\b(total|budget|overall)\b|총\s*예산|총\s*\d/i.test(text);
   const textPrimaryCap = amounts[0] ? Math.floor(amounts[0] / (totalBudget ? count : 1)) : 0;
   const textFallbackCap = amounts[1] ? Math.floor(amounts[1] / (totalBudget ? count : 1)) : 0;
-  const primaryCap = Number(proposed.primary?.max_price_krw || textPrimaryCap ||
-    defaults.primary?.max_price_krw || faceValue(primaryGrade));
-  const fallbackCap = fallbackGrade ? Number(
-    proposed.fallback_rules?.[0]?.max_price_krw || textFallbackCap ||
-    defaults.fallback_rules?.[0]?.max_price_krw || faceValue(fallbackGrade)
-  ) : 0;
-  if ((primaryZoneId && !primaryZone) || (fallbackZoneId && !fallbackZone) ||
-      !Number.isInteger(count) || count < 1 || count > event.maxTickets ||
-      !grades.includes(primaryGrade) || !Number.isFinite(primaryCap) || primaryCap <= 0 ||
-      (fallbackGrade && (!grades.includes(fallbackGrade) || !Number.isFinite(fallbackCap) || fallbackCap <= 0))) {
-    throw httpError(400, "Please review the seat grade, price limit, and ticket quantity");
+  const restrictedViewRequested = /avoid\s+(?:restricted|obstructed|limited)[ -]?view|no\s+(?:restricted|obstructed)[ -]?view|시야\s*(?:제한|방해).*(?:피|제외)|시제석.*(?:피|제외)/i.test(text);
+  const textAdjacency = /adjacent|together|side.by.side|연석|연속|붙/i.test(text);
+  const textSplit = /separate|split|apart|따로|각각|한\s*자리씩/i.test(text);
+
+  function normalizeRule(rawRule, inferred, defaultRule = {}, amountIndex = 0) {
+    const raw = rawRule || {};
+    const zoneId = raw.zone_id || inferred.zone_id || defaultRule.zone_id || null;
+    const zone = session.zones.find((item) => item.id === zoneId);
+    if (zoneId && !zone) throw httpError(400, `Unknown seat section: ${zoneId}`);
+    const grade = String(zone?.grade || raw.grade || inferred.grade || defaultRule.grade || "").toUpperCase();
+    if (!grades.includes(grade)) throw httpError(400, `Unsupported seat grade: ${grade || "missing"}`);
+    const amount = amounts[amountIndex];
+    const capFromText = amount ? Math.floor(amount / (totalBudget ? count : 1)) : 0;
+    const maxPrice = Number(raw.max_price_krw || inferred.max_price_krw || capFromText ||
+      defaultRule.max_price_krw || faceValue(grade));
+    if (!Number.isFinite(maxPrice) || maxPrice <= 0) {
+      throw httpError(400, `Enter a valid price limit for ${zone?.label || grade}`);
+    }
+    const adjacencyRequired = count > 1 && Boolean(
+      raw.adjacency_required ?? inferred.adjacency_required ?? defaultRule.adjacency_required ?? textAdjacency
+    );
+    const allowSplitSeats = count > 1 && Boolean(
+      raw.allow_split_seats ?? inferred.allow_split_seats ?? defaultRule.allow_split_seats ?? textSplit
+    );
+    return {
+      grade,
+      zone_id: zone?.id || null,
+      max_price_krw: maxPrice,
+      adjacency_required: adjacencyRequired,
+      allow_split_seats: allowSplitSeats,
+      avoid_restricted_view: Boolean(
+        raw.avoid_restricted_view ?? inferred.avoid_restricted_view ??
+        defaultRule.avoid_restricted_view ?? proposed.avoid_restricted_view ?? restrictedViewRequested
+      ),
+    };
   }
+
+  const primary = normalizeRule(proposed.primary, {
+    grade: primaryGrade,
+    zone_id: primaryZone?.id || null,
+    max_price_krw: textPrimaryCap,
+    adjacency_required: proposed.adjacency_required,
+    allow_split_seats: proposed.allow_split_seats,
+  }, defaults.primary || {}, 0);
+
+  const proposedFallbacks = Array.isArray(proposed.fallback_rules)
+    ? proposed.fallback_rules.slice(0, 4)
+    : [];
+  const inferredFallbacks = fallbackGrade ? [{
+    grade: fallbackGrade,
+    zone_id: fallbackZone?.id || null,
+    max_price_krw: textFallbackCap,
+  }] : [];
+  const fallbackInputs = proposedFallbacks.length ? proposedFallbacks : inferredFallbacks;
+  const fallbackRules = fallbackInputs.map((rule, index) => normalizeRule(
+    rule,
+    index === 0 ? inferredFallbacks[0] || {} : {},
+    defaults.fallback_rules?.[index] || {},
+    index + 1
+  )).filter((rule, index, rules) => {
+    const signature = JSON.stringify(rule);
+    return signature !== JSON.stringify(primary) &&
+      rules.findIndex((candidate) => JSON.stringify(candidate) === signature) === index;
+  });
+
   return {
-    primary: { grade: primaryGrade, zone_id: primaryZone?.id || null, max_price_krw: primaryCap },
-    fallback_rules: fallbackGrade && (fallbackGrade !== primaryGrade ||
-      (fallbackZone && fallbackZone.id !== primaryZone?.id))
-      ? [{ grade: fallbackGrade, zone_id: fallbackZone?.id || null, max_price_krw: fallbackCap }] : [],
+    primary,
+    fallback_rules: fallbackRules,
     seat_count: count,
-    preferred_zone_id: primaryZone?.id || null,
-    adjacency_required: count > 1 && Boolean(proposed.adjacency_required ?? defaults.adjacency_required ??
-      /adjacent|together|side.by.side|연석|연속/i.test(text)),
-    allow_split_seats: Boolean(proposed.allow_split_seats ?? defaults.allow_split_seats ??
-      /separate|split|apart|따로|각각/i.test(text)),
+    preferred_zone_id: primary.zone_id,
+    adjacency_required: primary.adjacency_required,
+    allow_split_seats: primary.allow_split_seats,
+    avoid_restricted_view: primary.avoid_restricted_view,
   };
 }
 
@@ -432,6 +486,7 @@ function pickCatalogSeat(eventState, conditions) {
     const candidates = seats
       .filter((seat) => seat.grade === rule.grade &&
         (!rule.zone_id || seat.zone_id === rule.zone_id) &&
+        (!rule.avoid_restricted_view || !seat.restricted_view) &&
         seat.price_krw <= Number(rule.max_price_krw) &&
         seat.available_count >= count)
       .sort((a, b) => Number(b.zone_id === preferredZoneId) - Number(a.zone_id === preferredZoneId));
@@ -440,7 +495,8 @@ function pickCatalogSeat(eventState, conditions) {
         eventState,
         seat,
         count,
-        Boolean(conditions.adjacency_required && !conditions.allow_split_seats)
+        Boolean((rule.adjacency_required ?? conditions.adjacency_required) &&
+          !(rule.allow_split_seats ?? conditions.allow_split_seats))
       );
       if (seatNumbers === null) continue;
       return {
@@ -450,6 +506,9 @@ function pickCatalogSeat(eventState, conditions) {
         grade: seat.grade,
         price_krw: seat.price_krw,
         count,
+        restricted_view: Boolean(seat.restricted_view),
+        adjacency_required: Boolean(rule.adjacency_required ?? conditions.adjacency_required),
+        allow_split_seats: Boolean(rule.allow_split_seats ?? conditions.allow_split_seats),
         match_type: index === 0 ? "PRIMARY" : "FALLBACK",
         matched_rule_index: index,
       };
@@ -767,7 +826,8 @@ app.get("/catalog/events", (req, res) => {
 
 app.post("/parse-condition", async (req, res) => {
   const text = String(req.body.text || "").trim();
-  if (!text) {
+  const controlsOnly = req.body.mode === "controls";
+  if (!text && !controlsOnly) {
     return res.status(400).json({ error: "text is required" });
   }
 
@@ -781,21 +841,65 @@ app.post("/parse-condition", async (req, res) => {
     } catch (error) {
       return res.status(error.status || 400).json({ error: error.message });
     }
+    if (controlsOnly) return res.json({ source: "controls", parsed: fallback });
     if (!genAI) return res.json({ source: "fallback", parsed: fallback });
     try {
-      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+      const model = genAI.getGenerativeModel({
+        model: GEMINI_MODEL,
+        generationConfig: { responseMimeType: "application/json", temperature: 0.1 },
+      });
       const grades = [...new Set(record.session.zones.map((zone) => zone.grade))];
-      const prompt = `Parse the ticket buyer's request for ${record.event.title} into JSON only.\n` +
-        `Valid seat grades: ${grades.join(", ")}. Prices are KRW per ticket.\n` +
-        `Valid seat zones (label -> id): ${record.session.zones.map((zone) => `${zone.label} -> ${zone.id}`).join(", ")}. ` +
-        `If a zone is named, include its id in that rule's zone_id; otherwise use null.\n` +
-        `If a budget is total for several tickets, divide by seat_count.\n` +
-        `Return {"primary":{"grade":"...","zone_id":string|null,"max_price_krw":number|null},` +
-        `"fallback_rules":[{"grade":"...","zone_id":string|null,"max_price_krw":number|null}],` +
-        `"seat_count":number,"adjacency_required":boolean,"allow_split_seats":boolean}.\n` +
-        `Never invent a seat grade or price. Request: ${text}`;
-      const result = await model.generateContent(prompt);
+      const zones = record.session.zones.map((zone) => ({
+        label: zone.label,
+        id: zone.id,
+        grade: zone.grade,
+        price_krw: zone.price,
+        restricted_view: Boolean(zone.restrictedView),
+      }));
+      const prompt = `You parse Korean or English ticket-booking requests into ordered, executable conditions.
+Event: ${record.event.title}
+Valid grades: ${grades.join(", ")}
+Valid sections: ${JSON.stringify(zones)}
+Maximum tickets: ${record.event.maxTickets}
+
+Return JSON only:
+{
+  "primary": {
+    "grade": "valid grade",
+    "zone_id": "valid section id or null",
+    "max_price_krw": "number or null",
+    "adjacency_required": "boolean",
+    "allow_split_seats": "boolean",
+    "avoid_restricted_view": "boolean"
+  },
+  "fallback_rules": ["zero or more rules with the same fields, in the user's stated order"],
+  "seat_count": "integer",
+  "needs_clarification": "boolean",
+  "clarification_question": "short question in the user's language, or null"
+}
+
+Rules:
+- A section such as VIP A is more specific than a grade such as VIP. Never invent grades or section IDs.
+- Prices are per ticket. Divide an explicitly stated total budget by seat_count.
+- If no price is stated, use null; the server applies face value.
+- Keep alternatives in the exact order stated by the user.
+- Placement policy belongs to each rule. "Adjacent/consecutive/연석/연속" means adjacency_required=true.
+- "Separate/split/각각/따로/한 좌석씩" means allow_split_seats=true for that alternative.
+- "Avoid restricted/obstructed view/시야제한석을 피해서" means avoid_restricted_view=true for every applicable rule.
+- If an essential grade or quantity cannot be determined, set needs_clarification=true instead of guessing.
+
+Example request: 시야제한석을 피해서 VIP석 연속 2매. 안 되면 VIP 각각 한 좌석씩, 그것도 안 되면 R석 2연석.
+Example interpretation: primary VIP adjacent; fallback 1 VIP split allowed; fallback 2 R adjacent; all avoid restricted view.
+
+Buyer request: ${text}`;
+      const result = await model.generateContent(prompt, { timeout: 15000 });
       const parsed = JSON.parse(result.response.text().replace(/```json|```/g, "").trim());
+      if (parsed.needs_clarification) {
+        return res.status(422).json({
+          error: parsed.clarification_question || "Please clarify your seat grade and ticket quantity.",
+          needs_clarification: true,
+        });
+      }
       return res.json({
         source: "gemini",
         model: GEMINI_MODEL,
@@ -1294,4 +1398,4 @@ if (require.main === module) app.listen(PORT, () => {
   console.log("POST /refund/mark-refunded");
 });
 
-module.exports = { app, state, sessionIsOnSale };
+module.exports = { app, state, sessionIsOnSale, catalogCondition, catalogBySession };

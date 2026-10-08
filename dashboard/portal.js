@@ -49,7 +49,9 @@ function showError(message) {
 function zoneOptions(selected, includeNone) {
   const zones = booking.session.zones;
   const grades = [...new Set(zones.map((zone) => zone.grade))];
-  const options = includeNone ? ['<option value="">No alternative</option>'] : [];
+  const options = [includeNone
+    ? '<option value="">No alternative</option>'
+    : '<option value="">Select a section</option>'];
   for (const grade of grades) {
     const sameGrade = zones.filter((zone) => zone.grade === grade);
     if (sameGrade.length > 1) {
@@ -86,36 +88,41 @@ function ruleLabel(rule) {
     'Any ' + rule.grade + ' section';
 }
 
+function placementLabel(rule) {
+  if (parsed.seat_count < 2) return 'Single ticket';
+  if (rule.adjacency_required && rule.allow_split_seats) return 'Adjacent preferred; split seats accepted';
+  if (rule.adjacency_required) return 'Adjacent seats required';
+  if (rule.allow_split_seats) return 'Split seats accepted';
+  return 'No adjacency requirement';
+}
+
 function renderConditions() {
   const { event, session, intent } = booking;
   const chosen = session.zones.find((zone) => zone.id === intent.preferredZoneId);
-  const grade = chosen?.grade || session.zones.find((zone) => zone.remaining >= intent.quantity)?.grade || session.zones[0].grade;
-  const cap = chosen?.price || session.zones.find((zone) => zone.grade === grade)?.price || 0;
-  const firstGradeZones = session.zones.filter((zone) => zone.grade === grade);
-  const initialChoice = chosen ? 'zone:' + chosen.id : firstGradeZones.length > 1
-    ? 'grade:' + grade : 'zone:' + firstGradeZones[0].id;
+  const initialChoice = chosen ? 'zone:' + chosen.id : '';
   if (!formState) {
     formState = {
-      text: 'Please book ' + intent.quantity + ' ' + grade + ' ticket' + (intent.quantity === 1 ? '' : 's') +
-        ' for ' + event.title + ' on ' + session.date + ', up to ' + money(cap) + ' per ticket.',
+      text: '',
       quantity: intent.quantity,
       primaryChoice: initialChoice,
-      primaryCap: cap,
+      primaryCap: chosen?.price || '',
       fallbackChoice: '',
       fallbackCap: '',
     };
   }
   body.innerHTML = [
     '<h2 class="step-title">Set your booking conditions</h2>',
-    '<p class="step-sub">Edit the request in your own words. Review the interpreted conditions before joining the queue.</p>',
-    '<textarea id="conditionText" aria-label="Booking request">', html(formState.text), '</textarea>',
+    '<p class="step-sub">Describe complex preferences in Korean or English, or use the controls below. You will review the interpretation before joining the queue.</p>',
+    '<div class="field"><label for="conditionText">Natural-language request (optional)</label>',
+    '<textarea id="conditionText" aria-label="Booking request" placeholder="e.g. Avoid restricted-view seats. Find 2 adjacent VIP seats; if unavailable, allow split VIP seats or 2 adjacent R seats.">',
+    html(formState.text), '</textarea></div>',
     '<div class="field-row"><div class="field"><label for="ticketCount">Tickets</label>',
     '<input id="ticketCount" type="number" min="1" max="', event.maxTickets,
     '" value="', formState.quantity, '"></div>',
     '<div class="field"><label for="primaryZone">First-choice section</label><select id="primaryZone">',
     zoneOptions(formState.primaryChoice, false), '</select></div></div>',
     '<div class="field-row"><div class="field"><label for="primaryCap">Max per ticket (KRW)</label>',
-    '<input id="primaryCap" type="number" min="1" value="', formState.primaryCap, '"></div>',
+    '<input id="primaryCap" type="number" min="1" placeholder="Face value if blank" value="', formState.primaryCap, '"></div>',
     '<div class="field"><label for="fallbackZone">Alternative section</label>',
     '<select id="fallbackZone">', zoneOptions(formState.fallbackChoice, true), '</select></div></div>',
     '<div class="field-row', formState.fallbackChoice ? '' : ' is-hidden', '" id="fallbackCapRow">',
@@ -127,7 +134,7 @@ function renderConditions() {
   ].join('');
 }
 
-function renderParsed() {
+function renderParsedLegacy() {
   const fallback = parsed.fallback_rules[0];
   body.innerHTML = [
     '<h2 class="step-title">Review your conditions</h2>',
@@ -145,6 +152,38 @@ function renderParsed() {
     parsed.adjacency_required ? 'Required' : 'Not required', '</span></div>',
     '</div>',
     '<p class="flow-note">No payment has been made. When your turn comes, the platform checks its current inventory and an independent rule check runs before settlement.</p>',
+    '<button class="primary-btn" data-action="join">Confirm & join queue</button>',
+    '<button class="ghost-btn" data-action="edit">Edit conditions</button>'
+  ].join('');
+}
+
+function renderParsed() {
+  const fallbacks = parsed.fallback_rules || [];
+  const sourceCopy = parseSource === 'gemini'
+    ? ['Gemini interpreted your request. Check every detail before joining the platform queue.', 'GEMINI PARSED']
+    : parseSource === 'controls'
+      ? ['Your selected controls were converted into booking conditions. Check every detail before continuing.', 'CONTROLS']
+      : ['Gemini was unavailable, so the basic parser was used. Check every detail before continuing.', 'BASIC PARSER'];
+  const fallbackRows = fallbacks.length
+    ? fallbacks.map((rule, index) =>
+      '<div class="parsed-row"><span class="k">Alternative ' + (index + 1) + '</span><span class="v">' +
+      html(ruleLabel(rule)) + ' &middot; ' + money(rule.max_price_krw) + ' / ticket<br><small>' +
+      html(placementLabel(rule)) + '</small></span></div>').join('')
+    : '<div class="parsed-row"><span class="k">Alternatives</span><span class="v">None</span></div>';
+  body.innerHTML = [
+    '<h2 class="step-title">Review your conditions</h2>',
+    '<p class="step-sub">', sourceCopy[0], '</p>',
+    '<div class="agreed-pill"><span class="dot"></span>', sourceCopy[1], '</div>',
+    '<div class="parsed-card">',
+    '<div class="parsed-row"><span class="k">First choice</span><span class="v">',
+    html(ruleLabel(parsed.primary)), ' &middot; ', money(parsed.primary.max_price_krw), ' / ticket<br><small>',
+    html(placementLabel(parsed.primary)), '</small></span></div>',
+    fallbackRows,
+    '<div class="parsed-row"><span class="k">Quantity</span><span class="v">', parsed.seat_count, '</span></div>',
+    '<div class="parsed-row"><span class="k">Restricted view</span><span class="v">',
+    parsed.avoid_restricted_view ? 'Excluded' : 'Allowed', '</span></div>',
+    '</div>',
+    '<p class="flow-note">No payment has been made. At your turn, inventory and every interpreted rule are checked again in code before the Devnet demo settlement.</p>',
     '<button class="primary-btn" data-action="join">Confirm & join queue</button>',
     '<button class="ghost-btn" data-action="edit">Edit conditions</button>'
   ].join('');
@@ -259,22 +298,22 @@ async function interpret() {
   const fallbackChoice = document.getElementById('fallbackZone').value;
   const primary = choiceDetails(primaryChoice);
   const fallback = choiceDetails(fallbackChoice);
-  const primaryCap = Number(document.getElementById('primaryCap').value);
+  const primaryCap = Number(document.getElementById('primaryCap').value) || primary?.price || 0;
   const fallbackCap = Number(document.getElementById('fallbackCap').value) ||
     fallback?.price || 0;
-  if (!text || !Number.isInteger(quantity) || quantity < 1 || quantity > booking.event.maxTickets ||
-      !primary || !Number.isFinite(primaryCap) || primaryCap <= 0 ||
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > booking.event.maxTickets ||
+      (!text && !primary) || (primary && (!Number.isFinite(primaryCap) || primaryCap <= 0)) ||
       (fallback && (!Number.isFinite(fallbackCap) || fallbackCap <= 0 || fallbackChoice === primaryChoice))) {
-    showError('Enter a request, valid ticket quantity, different sections, and price limits.');
+    showError('Describe your request or select a first-choice section, then review the quantity and price limits.');
     return;
   }
   formState = { text, quantity, primaryChoice, primaryCap, fallbackChoice,
     fallbackCap: fallback ? fallbackCap : '' };
   const defaults = {
-    primary: { grade: primary.grade, zone_id: primary.zoneId, max_price_krw: primaryCap },
+    primary: primary ? { grade: primary.grade, zone_id: primary.zoneId, max_price_krw: primaryCap } : undefined,
     fallback_rules: fallback ? [{ grade: fallback.grade, zone_id: fallback.zoneId, max_price_krw: fallbackCap }] : [],
     seat_count: quantity,
-    preferred_zone_id: primary.zoneId,
+    preferred_zone_id: primary?.zoneId || null,
     adjacency_required: quantity > 1 && booking.event.genre !== 'Festival',
   };
   const button = body.querySelector('[data-action="interpret"]');
@@ -282,7 +321,7 @@ async function interpret() {
   button.textContent = 'Interpreting request...';
   try {
     const response = await post('/parse-condition', {
-      session_id: booking.session.id, text, defaults
+      session_id: booking.session.id, text, defaults, mode: text ? 'natural_language' : 'controls'
     });
     parsed = response.parsed;
     parseSource = response.source;
