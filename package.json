@@ -7,6 +7,7 @@
     "start": "node start.js",
     "platform": "node platform-sim/server.js",
     "settle": "node agent/settle-server.js",
+    "x402:client": "node agent/x402-escrow-client.js",
     "test": "node --test tests/*.test.js"
   },
   "repository": {
@@ -25,6 +26,8 @@
     "@coral-xyz/anchor": "^0.31.1",
     "@google/generative-ai": "^0.24.1",
     "@solana/web3.js": "^1.98.4",
+    "@x402/core": "^2.28.0",
+    "@x402/fetch": "^2.28.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1"
   }

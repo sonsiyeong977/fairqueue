@@ -55,7 +55,7 @@ test("catalog performances keep queue, inventory, and settlement separate", asyn
   process.env.TURN_INTERVAL_MS = "20";
   process.env.HOLD_TTL_MS = "10";
   process.env.GEMINI_API_KEY = "";
-  const { app, sessionIsOnSale, catalogCondition, catalogBySession } = require("../platform-sim/server");
+  const { app, sessionIsOnSale, catalogCondition, catalogBySession, pickCatalogSeat, createHold, expireHolds } = require("../platform-sim/server");
   const platformServer = http.createServer(app);
   const port = await listen(platformServer);
   base = `http://127.0.0.1:${port}`;
@@ -88,6 +88,7 @@ test("catalog performances keep queue, inventory, and settlement separate", asyn
     assert.equal(sessionIsOnSale("orbit-1122", Date.parse("2026-11-25T00:00:00+09:00")), false);
 
     const koreanBudget = await request(base, "/parse-condition", {
+      mode: "controls",
       session_id: "orbit-1120",
       text: "VIP 2연석, 총 35만원까지. 안 되면 R석 30만원까지.",
       defaults: { primary: { grade: "VIP", max_price_krw: 176000 }, seat_count: 2 },
@@ -98,6 +99,7 @@ test("catalog performances keep queue, inventory, and settlement separate", asyn
     assert.equal(koreanBudget.body.parsed.seat_count, 2);
 
     const zoneRequest = await request(base, "/parse-condition", {
+      mode: "controls",
       session_id: "orbit-1120",
       text: "VIP A 2 adjacent seats. If unavailable, try VIP B.",
     });
@@ -106,6 +108,7 @@ test("catalog performances keep queue, inventory, and settlement separate", asyn
     assert.equal(zoneRequest.body.parsed.fallback_rules[0].zone_id, "vip-b");
 
     const gradeThenZone = await request(base, "/parse-condition", {
+      mode: "controls",
       session_id: "orbit-1120",
       text: "VIP ticket, if unavailable R 1.",
       defaults: { seat_count: 1, adjacency_required: true },
@@ -115,8 +118,42 @@ test("catalog performances keep queue, inventory, and settlement separate", asyn
     assert.equal(gradeThenZone.body.parsed.fallback_rules[0].zone_id, "r-1");
     assert.equal(gradeThenZone.body.parsed.adjacency_required, false);
 
+    const unavailable = await request(base, "/parse-condition", {
+      session_id: "orbit-1120", text: "Book 2 adjacent VIP seats only. No alternatives.",
+    });
+    assert.equal(unavailable.status, 503);
+    assert.equal(unavailable.body.parsed, undefined);
+
+    const explicitPolicy = catalogCondition(
+      "Book 2 adjacent VIP seats only. No R seats or other alternatives.",
+      catalogBySession.get("orbit-1120"),
+      {
+        primary: { grade: "VIP", zone_id: null, max_price_krw: null, adjacency_required: true, allow_split_seats: false },
+        fallback_rules: [], seat_count: 2,
+      },
+      { primary: { grade: "VIP", zone_id: "vip-b", max_price_krw: 200000 }, fallback_rules: [{ grade: "R", zone_id: "r-1" }] }
+    );
+    assert.equal(explicitPolicy.primary.zone_id, null);
+    assert.equal(explicitPolicy.primary.max_price_krw, 176000);
+    assert.deepEqual(explicitPolicy.fallback_rules, []);
+
+    const inherited = catalogCondition("Find 2 adjecent R seats.", catalogBySession.get("orbit-1120"), {
+      primary: { grade: "R", zone_id: null, max_price_krw: 154000, adjacency_required: true },
+      fallback_rules: [], fallback_policy: "inherit_controls", seat_count: 2,
+    }, { primary: { grade: "R", max_price_krw: 154000 },
+      fallback_rules: [{ grade: "S", zone_id: null, max_price_krw: 132000 }], adjacency_required: true });
+    assert.equal(inherited.fallback_rules.length, 1);
+    assert.equal(inherited.fallback_rules[0].grade, "S");
+    assert.equal(inherited.fallback_rules[0].max_price_krw, 132000);
+    assert.equal(inherited.fallback_rules[0].adjacency_required, true);
+    const rejectedAlternative = catalogCondition("Find 2 adjacent R seats only. No alternatives.", catalogBySession.get("orbit-1120"), {
+      primary: { grade: "R", zone_id: null, max_price_krw: 154000, adjacency_required: true },
+      fallback_rules: [], fallback_policy: "explicit", seat_count: 2,
+    }, { fallback_rules: [{ grade: "S", max_price_krw: 132000 }] });
+    assert.deepEqual(rejectedAlternative.fallback_rules, []);
+
     const naturalLanguagePlan = catalogCondition(
-      "시야제한석을 피해서 VIP석 연속 2매. 안 되면 각각 한 좌석씩, 그것도 안 되면 R석 2연석.",
+      "Avoid restricted-view seats. Book 2 adjacent VIP seats; otherwise accept 2 separate VIP seats, then 2 adjacent R seats.",
       catalogBySession.get("orbit-1120"),
       {
         primary: {
@@ -143,6 +180,28 @@ test("catalog performances keep queue, inventory, and settlement separate", asyn
     assert.equal(naturalLanguagePlan.fallback_rules[0].allow_split_seats, true);
     assert.equal(naturalLanguagePlan.fallback_rules[1].grade, "R");
     assert.equal(naturalLanguagePlan.fallback_rules[1].adjacency_required, true);
+
+    const isolated = {
+      event: "orbit-1120", holds: [], queue: [],
+      seats: [{ zone_id: "vip-b", label: "VIP B", grade: "VIP", price_krw: 176000,
+        count: 4, available_numbers: [1, 3, 5, 7], restricted_view: false }],
+    };
+    const splitOffer = pickCatalogSeat(isolated, naturalLanguagePlan);
+    assert.equal(splitOffer.matched_rule_index, 1);
+    assert.deepEqual(splitOffer.seat_numbers, [1, 3]);
+    const entry = { queue_id: "first", user_id: "first", processing: true };
+    isolated.queue.push(entry);
+    const hold = createHold(isolated, entry, splitOffer);
+    assert.equal(hold.restricted_view, false);
+    hold.expires_at_ms = Date.now() - 1;
+    expireHolds(isolated);
+    assert.equal(isolated.holds.length, 1, "Processing protects a hold even beyond its TTL");
+    const nextOffer = pickCatalogSeat(isolated, naturalLanguagePlan);
+    assert.deepEqual(nextOffer.seat_numbers, [5, 7], "Another buyer cannot receive the held seats");
+    entry.processing = false;
+    expireHolds(isolated);
+    assert.equal(isolated.holds.length, 0);
+    assert.deepEqual(pickCatalogSeat(isolated, naturalLanguagePlan).seat_numbers, [1, 3]);
 
     const gardenEarly = await request(base, "/queue/join", {
       event: "garden-1105", user_id: "early", conditions: {

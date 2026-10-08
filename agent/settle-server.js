@@ -41,6 +41,24 @@ const provider = new anchor.AnchorProvider(
 );
 const program = new anchor.Program(idl, provider);
 
+app.get("/health", (req, res) => res.json({ ok: true, cluster: CLUSTER, x402_enabled: process.env.X402_ESCROW_ENABLED === "true" }));
+app.get("/x402/config", requireApiKey, async (req, res) => {
+  try {
+    const { NETWORK, DEVNET_GENESIS } = require("../shared/escrow-payment-policy");
+    if (CLUSTER !== "devnet" || await connection.getGenesisHash() !== DEVNET_GENESIS) throw new Error("The escrow RPC must be Solana Devnet");
+    res.json({ enabled: process.env.X402_ESCROW_ENABLED === "true", cluster: "devnet", network: NETWORK,
+      program_id: programId.toBase58(), authority: agentWallet.publicKey.toBase58(), seller: sellerWallet.publicKey.toBase58(), max_lamports: "10000000" });
+  } catch (error) { res.status(503).json({ error: error.message }); }
+});
+app.get("/x402/balance", requireApiKey, async (req, res) => {
+  try {
+    const { DEVNET_GENESIS } = require("../shared/escrow-payment-policy");
+    if (CLUSTER !== "devnet" || await connection.getGenesisHash() !== DEVNET_GENESIS) throw new Error("The balance RPC must be Solana Devnet");
+    const address = new PublicKey(req.query.address);
+    res.json({ address: address.toBase58(), cluster: "devnet", lamports: await connection.getBalance(address, "confirmed") });
+  } catch (error) { res.status(503).json({ error: error.message }); }
+});
+
 function nextOrderId() {
   return BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000));
 }
@@ -243,6 +261,18 @@ function verifyDecisionDeterministically(userConditions, offeredSeat, geminiDeci
       ? `Gemini 판단(${geminiDecision.decision})이 실제 조건과 불일치하여 ${correctDecision}로 강제 수정됨`
       : "Gemini 판단이 결정론적 검증을 통과함",
   };
+}
+
+if (process.env.X402_ESCROW_ENABLED === "true") {
+  if (CLUSTER !== "devnet" || !process.env.SETTLE_API_KEY) throw new Error("x402 escrow requires Devnet and SETTLE_API_KEY");
+  const { createEscrowPaymentHandler } = require("./x402-escrow");
+  const { createAnchorPaymentAdapter } = require("./anchor-payment-adapter");
+  const handler = createEscrowPaymentHandler(createAnchorPaymentAdapter({
+    program, connection, authority: agentWallet, seller: sellerWallet.publicKey, decide: deterministicDecisionOnly,
+  }));
+  app.post("/x402/settle", requireApiKey, handler);
+  app.get("/x402/payments/:paymentId", requireApiKey, handler.status);
+  app.post("/x402/cancel", requireApiKey, handler.cancel);
 }
 
 // ── 핵심 엔드포인트: POST /settle (인증 필요) ──────────────────────────────

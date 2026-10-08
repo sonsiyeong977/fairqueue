@@ -219,10 +219,19 @@
   .agreed-pill { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; background: rgba(20,241,149,.12); color: var(--green); padding:4px 10px; border-radius:20px; margin-bottom:12px; font-family:'JetBrains Mono',monospace; }
   .agreed-pill .dot { width:6px; height:6px; border-radius:50%; background: var(--green); }
   .parsed-card { background: rgba(255,255,255,.03); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px; }
-  .parsed-row { display:flex; justify-content:space-between; font-size:13px; padding:6px 0; border-bottom:1px dashed var(--line); }
+  .parsed-row { display:grid; grid-template-columns:80px minmax(0,1fr); gap:12px; font-size:13px; padding:6px 0; border-bottom:1px dashed var(--line); }
   .parsed-row:last-child { border-bottom:none; }
   .parsed-row .k { color: var(--muted); }
-  .parsed-row .v { font-weight:700; }
+  .parsed-row .v { font-weight:700; text-align:right; overflow-wrap:anywhere; }
+  .payment-options { margin:18px 0 0; padding:0; border:0; }
+  .payment-options legend { font-size:13px; font-weight:700; margin-bottom:10px; }
+  .payment-options label { display:inline-flex; align-items:center; gap:7px; margin:0 16px 10px 0; font-size:13px; }
+  .payment-options input { accent-color:var(--cyan); width:16px; height:16px; }
+  .wallet-pane { border-top:1px solid var(--line); padding:12px 0; font-size:13px; overflow-wrap:anywhere; }
+  .wallet-pane select { width:100%; margin:8px 0; }
+  .wallet-pane .wallet-address { display:block; color:var(--text); margin:6px 0; font-family:'JetBrains Mono',monospace; font-size:11px; }
+  .wallet-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .wallet-actions button { width:auto; margin:0; padding:8px 12px; }
 
   .queue-box { text-align:center; padding:8px 0 4px; }
   .queue-caption { font-size:11px; color: var(--muted); font-family:'JetBrains Mono',monospace; }
@@ -350,5 +359,6 @@ window.addEventListener('resize', resize); resize(); draw();
 // Live booking flow is implemented in portal.js.
 </script>
 <script src="./portal.js"></script>
+<script type="module" src="/storefront/booking-wallet.js"></script>
 </body>
 </html>

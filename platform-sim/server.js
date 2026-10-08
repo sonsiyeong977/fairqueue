@@ -28,6 +28,31 @@ const SEAT_PRICES = { VIP: 250000, R: 190000, S: 120000 };
 const catalog = require("../storefront/catalog.json");
 const catalogBySession = new Map();
 
+const ruleSchema = {
+  type: "OBJECT",
+  properties: {
+    grade: { type: "STRING" },
+    zone_id: { type: "STRING", nullable: true },
+    max_price_krw: { type: "NUMBER", nullable: true },
+    adjacency_required: { type: "BOOLEAN" },
+    allow_split_seats: { type: "BOOLEAN" },
+    avoid_restricted_view: { type: "BOOLEAN" },
+  },
+  required: ["grade", "zone_id", "max_price_krw", "adjacency_required", "allow_split_seats", "avoid_restricted_view"],
+};
+const conditionSchema = {
+  type: "OBJECT",
+  properties: {
+    primary: ruleSchema,
+    fallback_rules: { type: "ARRAY", items: ruleSchema },
+    fallback_policy: { type: "STRING", enum: ["inherit_controls", "explicit"] },
+    seat_count: { type: "INTEGER" },
+    needs_clarification: { type: "BOOLEAN" },
+    clarification_question: { type: "STRING", nullable: true },
+  },
+  required: ["primary", "fallback_rules", "fallback_policy", "seat_count", "needs_clarification", "clarification_question"],
+};
+
 const state = {
   events: {
     [defaultEventName]: {
@@ -116,7 +141,7 @@ function catalogCondition(text, record, proposed = {}, defaults = {}) {
   const primaryGradeHint = proposed.primary?.grade || firstMention?.grade || defaults.primary?.grade || grades[0];
   const primaryMention = zoneMentions.find((mention) =>
     mention.zone.grade === primaryGradeHint && (!fallbackCue || mention.index < fallbackCue.index));
-  const primaryZoneId = proposed.primary?.zone_id || primaryMention?.zone.id ||
+  const primaryZoneId = Object.hasOwn(proposed.primary || {}, "zone_id") ? proposed.primary.zone_id : primaryMention?.zone.id ||
     defaults.primary?.zone_id || defaults.preferred_zone_id || null;
   const primaryZone = session.zones.find((zone) => zone.id === primaryZoneId);
   const primaryGrade = primaryZone?.grade || primaryGradeHint;
@@ -144,20 +169,20 @@ function catalogCondition(text, record, proposed = {}, defaults = {}) {
 
   function normalizeRule(rawRule, inferred, defaultRule = {}, amountIndex = 0) {
     const raw = rawRule || {};
-    const zoneId = raw.zone_id || inferred.zone_id || defaultRule.zone_id || null;
+    const zoneId = Object.hasOwn(raw, "zone_id") ? raw.zone_id : inferred.zone_id || defaultRule.zone_id || null;
     const zone = session.zones.find((item) => item.id === zoneId);
     if (zoneId && !zone) throw httpError(400, `Unknown seat section: ${zoneId}`);
     const grade = String(zone?.grade || raw.grade || inferred.grade || defaultRule.grade || "").toUpperCase();
     if (!grades.includes(grade)) throw httpError(400, `Unsupported seat grade: ${grade || "missing"}`);
     const amount = amounts[amountIndex];
     const capFromText = amount ? Math.floor(amount / (totalBudget ? count : 1)) : 0;
-    const maxPrice = Number(raw.max_price_krw || inferred.max_price_krw || capFromText ||
+    const maxPrice = Number(Object.hasOwn(raw, "max_price_krw") ? raw.max_price_krw ?? faceValue(grade) : inferred.max_price_krw || capFromText ||
       defaultRule.max_price_krw || faceValue(grade));
     if (!Number.isFinite(maxPrice) || maxPrice <= 0) {
       throw httpError(400, `Enter a valid price limit for ${zone?.label || grade}`);
     }
     const adjacencyRequired = count > 1 && Boolean(
-      raw.adjacency_required ?? inferred.adjacency_required ?? defaultRule.adjacency_required ?? textAdjacency
+      raw.adjacency_required ?? inferred.adjacency_required ?? defaultRule.adjacency_required ?? defaults.adjacency_required ?? textAdjacency
     );
     const allowSplitSeats = count > 1 && Boolean(
       raw.allow_split_seats ?? inferred.allow_split_seats ?? defaultRule.allow_split_seats ?? textSplit
@@ -189,9 +214,16 @@ function catalogCondition(text, record, proposed = {}, defaults = {}) {
   const inferredFallbacks = fallbackGrade ? [{
     grade: fallbackGrade,
     zone_id: fallbackZone?.id || null,
-    max_price_krw: textFallbackCap,
+    max_price_krw: textFallbackCap || defaults.fallback_rules?.[0]?.max_price_krw || null,
   }] : [];
-  const fallbackInputs = proposedFallbacks.length ? proposedFallbacks : inferredFallbacks;
+  const fallbackInputs = proposed.fallback_policy === "inherit_controls"
+    ? (defaults.fallback_rules || []).map((rule) => ({
+      ...rule,
+      adjacency_required: rule.adjacency_required ?? defaults.adjacency_required ?? primary.adjacency_required,
+      allow_split_seats: rule.allow_split_seats ?? defaults.allow_split_seats ?? false,
+      avoid_restricted_view: rule.avoid_restricted_view ?? primary.avoid_restricted_view,
+    }))
+    : Array.isArray(proposed.fallback_rules) ? proposedFallbacks : inferredFallbacks;
   const fallbackRules = fallbackInputs.map((rule, index) => normalizeRule(
     rule,
     index === 0 ? inferredFallbacks[0] || {} : {},
@@ -607,7 +639,8 @@ function expireHolds(eventState) {
   const now = Date.now();
   eventState.holds = eventState.holds.filter((hold) =>
     hold.expires_at_ms > now ||
-    eventState.queue.some((entry) => entry.queue_id === hold.queue_id && entry.processing)
+    eventState.queue.some((entry) => entry.queue_id === hold.queue_id &&
+      (entry.processing || entry.payment_unknown || entry.payment_wait_until > now))
   );
 }
 
@@ -623,6 +656,9 @@ function createHold(eventState, queueEntry, seat) {
     seat_numbers: seat.seat_numbers || [],
     price_krw: seat.price_krw,
     count: seat.count,
+    restricted_view: Boolean(seat.restricted_view),
+    adjacency_required: Boolean(seat.adjacency_required),
+    allow_split_seats: Boolean(seat.allow_split_seats),
     match_type: seat.match_type,
     matched_rule_index: seat.matched_rule_index,
     created_at: nowIso(),
@@ -728,17 +764,27 @@ function markRefundCompleted(eventState, queueEntry, reason, txHash) {
 async function callSettleServer(eventState, queueEntry, offeredSeat) {
   const headers = { "Content-Type": "application/json" };
   if (SETTLE_API_KEY) headers["x-api-key"] = SETTLE_API_KEY;
+  const payment = queueEntry.agent_payment;
+  if (payment?.signature) headers["PAYMENT-SIGNATURE"] = payment.signature;
+  if (payment?.signature) queueEntry.payment_unknown = true;
 
-  const response = await fetch(`${SETTLE_SERVER_URL}/settle`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      user_id: queueEntry.user_id,
-      event: eventState.event,
-      user_conditions: queueEntry.conditions || {},
-      offered_seat: offeredSeat,
-    }),
-  });
+  let response;
+  try {
+    response = await fetch(`${SETTLE_SERVER_URL}${payment ? "/x402/settle" : "/settle"}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        user_id: queueEntry.user_id,
+        event: eventState.event,
+        user_conditions: queueEntry.conditions || {},
+        offered_seat: offeredSeat,
+        ...(payment ? { payer: payment.payer, queue_id: queueEntry.queue_id } : {}),
+      }),
+    });
+  } catch (error) {
+    if (payment?.signature) queueEntry.payment_unknown = true;
+    throw error;
+  }
 
   const bodyText = await response.text();
   let body;
@@ -750,13 +796,22 @@ async function callSettleServer(eventState, queueEntry, offeredSeat) {
 
   if (!response.ok) {
     const message = body.error || `settle-server returned ${response.status}`;
-    throw httpError(502, message);
+    const error = httpError(response.status === 402 ? 402 : 502, message);
+    error.paymentRequired = response.headers.get("PAYMENT-REQUIRED");
+    error.paymentBody = body;
+    if (payment && ["READY", "PREPARING"].includes(body.payment_status)) queueEntry.payment_unknown = false;
+    throw error;
+  }
+  if (payment) {
+    queueEntry.payment_response = response.headers.get("PAYMENT-RESPONSE");
+    queueEntry.payment_wait_until = 0;
   }
 
   if (!["SETTLE_PRIMARY", "SETTLE_FALLBACK", "REFUND"].includes(body.final_decision) ||
       !body.fund_tx || !body.settle_tx) {
     throw httpError(502, "settle-server returned an incomplete settlement result");
   }
+  if (payment) queueEntry.payment_unknown = false;
 
   return body;
 }
@@ -824,6 +879,20 @@ app.get("/catalog/events", (req, res) => {
   });
 });
 
+async function walletService(req, res, endpoint) {
+  try {
+    const url = new URL(`/x402/${endpoint}`, SETTLE_SERVER_URL);
+    if (endpoint === "balance") url.searchParams.set("address", String(req.query.address || ""));
+    const response = await fetch(url, { headers: SETTLE_API_KEY ? { "x-api-key": SETTLE_API_KEY } : {}, signal: AbortSignal.timeout(12000) });
+    const data = await response.json();
+    if (endpoint === "config") data.enabled = Boolean(data.enabled && process.env.X402_ESCROW_ENABLED === "true");
+    res.setHeader("Cache-Control", "no-store");
+    res.status(response.status).json(data);
+  } catch { res.status(503).json({ error: "The Devnet wallet service is unavailable. Check the settlement server connection." }); }
+}
+app.get("/wallet/config", (req, res) => walletService(req, res, "config"));
+app.get("/wallet/balance", (req, res) => walletService(req, res, "balance"));
+
 app.post("/parse-condition", async (req, res) => {
   const text = String(req.body.text || "").trim();
   const controlsOnly = req.body.mode === "controls";
@@ -842,11 +911,11 @@ app.post("/parse-condition", async (req, res) => {
       return res.status(error.status || 400).json({ error: error.message });
     }
     if (controlsOnly) return res.json({ source: "controls", parsed: fallback });
-    if (!genAI) return res.json({ source: "fallback", parsed: fallback });
+    if (!genAI) return res.status(503).json({ error: "Natural-language interpretation is unavailable. Select your conditions using the controls, or try again later." });
     try {
       const model = genAI.getGenerativeModel({
         model: GEMINI_MODEL,
-        generationConfig: { responseMimeType: "application/json", temperature: 0.1 },
+        generationConfig: { responseMimeType: "application/json", responseSchema: conditionSchema, temperature: 0.1 },
       });
       const grades = [...new Set(record.session.zones.map((zone) => zone.grade))];
       const zones = record.session.zones.map((zone) => ({
@@ -873,6 +942,7 @@ Return JSON only:
     "avoid_restricted_view": "boolean"
   },
   "fallback_rules": ["zero or more rules with the same fields, in the user's stated order"],
+  "fallback_policy": "inherit_controls or explicit",
   "seat_count": "integer",
   "needs_clarification": "boolean",
   "clarification_question": "short question in the user's language, or null"
@@ -888,7 +958,15 @@ Rules:
 - "Avoid restricted/obstructed view/시야제한석을 피해서" means avoid_restricted_view=true for every applicable rule.
 - If an essential grade or quantity cannot be determined, set needs_clarification=true instead of guessing.
 
-Example request: 시야제한석을 피해서 VIP석 연속 2매. 안 되면 VIP 각각 한 좌석씩, 그것도 안 되면 R석 2연석.
+Selected controls (use only for details omitted from the request): ${JSON.stringify(defaults)}
+- Explicit natural-language conditions override controls. An explicit refusal of alternatives means fallback_rules=[].
+- If the request does not discuss alternatives, set fallback_policy="inherit_controls". The server retains the buyer's selected alternative controls, even if fallback_rules=[].
+- If the request specifies alternatives or explicitly rejects them (including "R seats only" or "no alternatives"), set fallback_policy="explicit" and include only those authorized alternatives.
+- Example: text "Find 2 adjacent R seats" plus selected alternative S means primary R and alternative S. Do not discard S merely because the text omitted it.
+- Example: text "Find 2 adjacent R seats only, no alternatives" plus selected alternative S means primary R and no alternative.
+- Never add split seats, another grade, or a fallback that the buyer did not authorize.
+- The example below is illustrative only, not a default policy.
+Example request: Avoid restricted-view seats. Book 2 adjacent VIP seats. If unavailable, accept 2 separate VIP seats; if that also fails, try 2 adjacent R seats.
 Example interpretation: primary VIP adjacent; fallback 1 VIP split allowed; fallback 2 R adjacent; all avoid restricted view.
 
 Buyer request: ${text}`;
@@ -907,7 +985,7 @@ Buyer request: ${text}`;
       });
     } catch (error) {
       console.warn(`[parse-condition] Gemini unavailable for ${record.session.id}: ${error.message}`);
-      return res.json({ source: "fallback", parsed: fallback });
+      return res.status(503).json({ error: "Gemini could not interpret the request. Your conditions have not been submitted. Try again or use the controls." });
     }
   }
 
@@ -1096,6 +1174,36 @@ app.get("/queue/my-turn", (req, res) => {
   res.json(queueSnapshot(eventState, entry));
 });
 
+app.get("/queue/result", (req, res) => {
+  const eventState = getOrCreateEvent(req.query.event);
+  const entry = findQueueEntry(eventState, req.query);
+  if (!entry) return res.status(404).json({ error: "Queue entry not found" });
+  if (entry.agent_payment?.payer && entry.agent_payment.payer !== req.query.payer) return res.status(403).json({ error: "Reconnect the payer wallet for this booking" });
+  res.json({ status: entry.status, payment_unknown: Boolean(entry.payment_unknown), result: entry.completed_result || null });
+});
+
+app.post("/queue/cancel", async (req, res) => {
+  const eventState = getOrCreateEvent(req.body.event);
+  const entry = findQueueEntry(eventState, req.body);
+  if (!entry) return res.status(404).json({ error: "Queue entry not found" });
+  if (entry.processing || entry.payment_unknown || ["SETTLED", "PURCHASED", "REFUNDED"].includes(entry.status)) return res.status(409).json({ error: "Check the existing payment; it cannot be cancelled here" });
+  if (entry.agent_payment) {
+    if (req.body.payer !== entry.agent_payment.payer) return res.status(403).json({ error: "Reconnect the payer wallet" });
+    entry.processing = true;
+    try {
+      const response = await fetch(`${SETTLE_SERVER_URL}/x402/cancel`, {
+        method: "POST", headers: { "Content-Type": "application/json", "x-api-key": SETTLE_API_KEY },
+        body: JSON.stringify({ event: entry.event || eventState.event, queue_id: entry.queue_id, payer: entry.agent_payment.payer }),
+      });
+      if (!response.ok) return res.status(409).json({ error: "The payment could not be cancelled. Check its existing status." });
+    } catch { return res.status(503).json({ error: "The payment service is unavailable; cancellation is not confirmed" }); }
+    finally { entry.processing = false; }
+  }
+  eventState.holds = eventState.holds.filter(hold => hold.queue_id !== entry.queue_id);
+  entry.offer = null; entry.status = "CANCELLED";
+  res.json({ cancelled: true });
+});
+
 app.post("/queue/advance", (req, res) => {
   if (catalogBySession.has(req.body.event)) {
     return res.status(403).json({ error: "Queue turns advance automatically for catalog events" });
@@ -1277,6 +1385,15 @@ app.post("/demo/settle-offer", async (req, res) => {
     if (entry.processing) {
       return res.status(409).json({ error: "settlement is already in progress" });
     }
+    if (entry.payment_unknown) return res.status(409).json({ error: "Payment requires reconciliation. Do not pay again." });
+    if (req.body.payment_mode === "x402") {
+      if (process.env.X402_ESCROW_ENABLED !== "true") return res.status(409).json({ error: "x402 escrow experiment is disabled" });
+      if (!req.body.payer) return res.status(400).json({ error: "A buyer-authorized payer wallet is required" });
+      if (entry.agent_payment && entry.agent_payment.payer !== req.body.payer) return res.status(409).json({ error: "This queue entry is already bound to another payer" });
+      entry.agent_payment = { payer: req.body.payer, signature: req.get("PAYMENT-SIGNATURE") || null };
+    } else if (entry.agent_payment) {
+      return res.status(409).json({ error: "Continue this entry with its authorized x402 payment" });
+    }
 
     if (entry.offer) {
       const activeHold = eventState.holds.find((hold) => hold.hold_id === entry.offer.hold_id);
@@ -1287,7 +1404,7 @@ app.post("/demo/settle-offer", async (req, res) => {
     }
 
     let snapshot = queueSnapshot(eventState, entry);
-    if (!snapshot.is_my_turn && entry.status !== "OFFERED") {
+    if (!snapshot.is_my_turn && !["OFFERED", "REFUND_PENDING"].includes(entry.status)) {
       return res.status(409).json({ error: "not your turn yet", queue: snapshot });
     }
     entry.processing = true;
@@ -1308,15 +1425,17 @@ app.post("/demo/settle-offer", async (req, res) => {
           reason,
           settleResult.settle_tx
         );
+        if (entry.payment_response) res.setHeader("PAYMENT-RESPONSE", entry.payment_response);
 
-        return res.status(201).json({
+        entry.completed_result = {
           event: eventState.event,
           queue: queueSnapshot(eventState, entry),
           offered_seat: null,
           refund,
           settle_result: settleResult,
           seat_statuses: seatStatusRows(eventState),
-        });
+        };
+        return res.status(201).json(entry.completed_result);
       }
     }
 
@@ -1329,19 +1448,22 @@ app.post("/demo/settle-offer", async (req, res) => {
         settleResult.verify_note || "Settle server decided to refund",
         settleResult.settle_tx
       );
+      if (entry.payment_response) res.setHeader("PAYMENT-RESPONSE", entry.payment_response);
 
-      return res.status(201).json({
+      entry.completed_result = {
         event: eventState.event,
         queue: queueSnapshot(eventState, entry),
         offered_seat: null,
         refund,
         settle_result: settleResult,
         seat_statuses: seatStatusRows(eventState),
-      });
+      };
+      return res.status(201).json(entry.completed_result);
     }
 
     const order = confirmHold(eventState, hold, settleResult.settle_tx);
-    res.status(201).json({
+    if (entry.payment_response) res.setHeader("PAYMENT-RESPONSE", entry.payment_response);
+    entry.completed_result = {
       event: eventState.event,
       queue: queueSnapshot(eventState, entry),
       offered_seat: hold,
@@ -1349,8 +1471,14 @@ app.post("/demo/settle-offer", async (req, res) => {
       settle_result: settleResult,
       remainingSeats: publicSeatRows(eventState),
       seat_statuses: seatStatusRows(eventState),
-    });
+    };
+    res.status(201).json(entry.completed_result);
   } catch (error) {
+    if (error.paymentRequired) {
+      res.setHeader("PAYMENT-REQUIRED", error.paymentRequired);
+      if (activeEntry) activeEntry.payment_wait_until = error.paymentBody.accepts?.[0]?.extra?.expires_at || 0;
+      return res.status(402).json(error.paymentBody);
+    }
     res.status(error.status || 500).json({ error: error.message });
   } finally {
     if (activeEntry) activeEntry.processing = false;
@@ -1398,4 +1526,4 @@ if (require.main === module) app.listen(PORT, () => {
   console.log("POST /refund/mark-refunded");
 });
 
-module.exports = { app, state, sessionIsOnSale, catalogCondition, catalogBySession };
+module.exports = { app, state, sessionIsOnSale, catalogCondition, catalogBySession, pickCatalogSeat, createHold, expireHolds };

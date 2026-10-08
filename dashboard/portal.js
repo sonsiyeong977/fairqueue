@@ -12,6 +12,12 @@ let pollTimer = null;
 let busy = false;
 let result = null;
 let settlementError = null;
+let paymentMode = 'demo';
+let buyerAddress = null;
+let walletPhase = '';
+let walletQuote = null;
+let approval = null;
+let settling = false;
 
 const html = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -134,29 +140,6 @@ function renderConditions() {
   ].join('');
 }
 
-function renderParsedLegacy() {
-  const fallback = parsed.fallback_rules[0];
-  body.innerHTML = [
-    '<h2 class="step-title">Review your conditions</h2>',
-    '<p class="step-sub">', parseSource === 'gemini'
-      ? 'Gemini interpreted your request. Check every detail before joining the official queue.'
-      : 'The basic parser was used because Gemini was unavailable. Check every detail before continuing.', '</p>',
-    '<div class="agreed-pill"><span class="dot"></span>', parseSource === 'gemini' ? 'GEMINI PARSED' : 'BASIC PARSER', '</div>',
-    '<div class="parsed-card">',
-    '<div class="parsed-row"><span class="k">First choice</span><span class="v">',
-    html(ruleLabel(parsed.primary)), ' · ', money(parsed.primary.max_price_krw), ' / ticket</span></div>',
-    '<div class="parsed-row"><span class="k">Alternative</span><span class="v">',
-    fallback ? html(ruleLabel(fallback)) + ' · ' + money(fallback.max_price_krw) + ' / ticket' : 'None', '</span></div>',
-    '<div class="parsed-row"><span class="k">Quantity</span><span class="v">', parsed.seat_count, '</span></div>',
-    '<div class="parsed-row"><span class="k">Adjacent seats</span><span class="v">',
-    parsed.adjacency_required ? 'Required' : 'Not required', '</span></div>',
-    '</div>',
-    '<p class="flow-note">No payment has been made. When your turn comes, the platform checks its current inventory and an independent rule check runs before settlement.</p>',
-    '<button class="primary-btn" data-action="join">Confirm & join queue</button>',
-    '<button class="ghost-btn" data-action="edit">Edit conditions</button>'
-  ].join('');
-}
-
 function renderParsed() {
   const fallbacks = parsed.fallback_rules || [];
   const sourceCopy = parseSource === 'gemini'
@@ -183,10 +166,36 @@ function renderParsed() {
     '<div class="parsed-row"><span class="k">Restricted view</span><span class="v">',
     parsed.avoid_restricted_view ? 'Excluded' : 'Allowed', '</span></div>',
     '</div>',
-    '<p class="flow-note">No payment has been made. At your turn, inventory and every interpreted rule are checked again in code before the Devnet demo settlement.</p>',
+    '<fieldset class="payment-options"><legend>Payment method</legend>',
+    '<label><input type="radio" name="paymentMode" value="demo"', paymentMode === 'demo' ? ' checked' : '', '>Server demo wallet</label>',
+    '<label><input type="radio" name="paymentMode" value="wallet"', paymentMode === 'wallet' ? ' checked' : '', '>My wallet &middot; Devnet</label></fieldset>',
+    '<div id="walletPane" class="wallet-pane"', paymentMode === 'wallet' ? '' : ' hidden', '></div>',
+    '<p class="flow-note">', paymentMode === 'wallet'
+      ? 'At your turn, review the Devnet deposit and approve it in your wallet. Verified offers settle automatically; a refund returns the deposit to this wallet. Fees and escrow account rent are separate.'
+      : 'No payment has been made. The server demo wallet funds this booking at your queue turn.', '</p>',
     '<button class="primary-btn" data-action="join">Confirm & join queue</button>',
     '<button class="ghost-btn" data-action="edit">Edit conditions</button>'
   ].join('');
+  updateWalletPane();
+}
+
+const sol = (lamports) => (Number(lamports) / 1000000000).toFixed(9).replace(/0+$/, '').replace(/\.$/, '') + ' SOL';
+function updateWalletPane() {
+  const pane = document.getElementById('walletPane');
+  if (!pane || paymentMode !== 'wallet') return;
+  const wallet = window.FairQueueWallet?.state();
+  pane.innerHTML = wallet?.address
+    ? '<strong>' + html(wallet.name) + ' &middot; Devnet</strong><span class="wallet-address">' + html(wallet.address) + '</span>' +
+      '<span>Balance: ' + (wallet.lamports === null ? 'Loading...' : sol(wallet.lamports)) + '</span>' +
+      '<div class="wallet-actions"><button class="ghost-btn" data-action="refresh-wallet">Refresh balance</button>' +
+      '<button class="ghost-btn" data-action="disconnect-wallet">Disconnect</button></div>' +
+      (!wallet.configuration?.enabled ? '<p class="flow-error">The x402 escrow service is not enabled.</p>' : '')
+    : '<span>Connect a buyer wallet on Solana Devnet.</span>' +
+      (wallet?.wallets.length ? '<select id="walletChoice" aria-label="Wallet">' + wallet.wallets.map((name) => '<option>' + html(name) + '</option>').join('') + '</select>' :
+        '<p class="flow-note">No wallet detected. Install Phantom or another Solana Wallet Standard wallet, then reload.</p>') +
+      '<div class="wallet-actions"><button class="ghost-btn" data-action="connect-wallet">Connect wallet</button></div>';
+  const join = body.querySelector('[data-action="join"]');
+  if (join) join.disabled = !wallet?.address || !wallet.configuration?.enabled;
 }
 
 function renderQueue(snapshot) {
@@ -213,11 +222,26 @@ function explorerLink(url, label) {
 
 function renderSettlement() {
   if (!result) {
+    if (paymentMode === 'wallet' && walletQuote && walletPhase === 'review-deposit') {
+      body.innerHTML = '<h2 class="step-title">Review your Devnet deposit</h2>' +
+        '<p class="step-sub">' + (walletQuote.decision === 'REFUND' ? 'No matching offer was found. This test deposit will be refunded to your wallet.' : 'The held offer passed your conditions. Approve its escrow deposit in your wallet.') + '</p>' +
+        '<div class="parsed-card">' + [['Deposit', sol(walletQuote.amount)], ['Account rent', sol(walletQuote.rent)], ['Network fee', sol(walletQuote.fee)], ['Total debit', sol(walletQuote.total)]].map(([label, value]) =>
+          '<div class="parsed-row"><span class="k">' + label + '</span><span class="v">' + value + '</span></div>').join('') + '</div>' +
+        '<p class="flow-note">Rent remains in the escrow account after settlement or refund. Network fees are not refunded.</p>' +
+        '<p class="flow-note">Payer: <strong>' + html(walletQuote.payer) + '</strong></p>' +
+        '<button class="primary-btn" data-action="approve-wallet">Approve deposit in wallet</button>' +
+        '<button class="ghost-btn" data-action="cancel-wallet">Cancel payment</button>';
+      return;
+    }
     body.innerHTML = '<h2 class="step-title">Checking the seat offer</h2>' +
-      '<p class="step-sub">The platform is checking current inventory and submitting the escrow transaction on Devnet. This may take a moment.</p>' +
+      '<p class="step-sub">' + (walletPhase === 'awaiting-wallet' ? 'Approve the deposit in your wallet. Your seats remain held during this short authorization window.' :
+        walletPhase === 'submitting' ? 'Confirming your buyer-signed deposit and escrow settlement on Devnet.' : 'The platform is checking current inventory and preparing the escrow transaction on Devnet.') + '</p>' +
       '<div class="bar-bg"><div class="bar-fill"></div></div>' +
       '<p class="flow-note">Queue ID: <strong>' + html(queueId) + '</strong>. Please keep this page open.</p>' +
-      (settlementError ? '<p class="flow-error">' + html(settlementError) + '</p>' : '');
+      (settlementError ? '<p class="flow-error">' + html(settlementError) + '</p>' : '') +
+      (paymentMode === 'wallet' && settlementError ? '<div id="walletPane" class="wallet-pane"></div><button class="ghost-btn" data-action="payment-status">Check existing payment</button>' +
+        (walletPhase !== 'submitting' ? '<button class="ghost-btn" data-action="retry-wallet">Continue wallet approval</button><button class="ghost-btn" data-action="cancel-booking">Cancel booking</button>' : '') : '');
+    updateWalletPane();
     return;
   }
   const settled = Boolean(result.order);
@@ -250,7 +274,8 @@ function renderSettlement() {
     '</div><div class="thash">', html(settlement.settle_tx || '-'), '</div></div>',
     explorerLink(settlement.explorer_urls?.fund, 'View deposit on Solana Explorer'),
     explorerLink(settlement.explorer_urls?.settle, 'View settlement on Solana Explorer'),
-    '<p class="flow-note">Devnet uses a demo agent wallet. No card payment or real ticket issuance occurs here.</p>',
+    paymentMode === 'wallet' ? '<p class="flow-note">Buyer wallet: <strong>' + html(settlement.escrow_user || buyerAddress) + '</strong></p>' : '',
+    '<p class="flow-note">', paymentMode === 'wallet' ? 'Paid from your connected Devnet wallet. No card payment or real ticket issuance occurs here.' : 'Devnet uses a demo agent wallet. No card payment or real ticket issuance occurs here.', '</p>',
     '<button class="ghost-btn" data-action="return">Back to event</button>'
   ].join('');
 }
@@ -283,6 +308,7 @@ function saveBookingHistory() {
       seats: result.order?.seat_numbers || [],
       totalKrw: result.order ? result.order.price_krw * result.order.count : 0,
       txUrl: result.settle_result?.explorer_urls?.settle || null,
+      paymentMode, payer: buyerAddress,
       completedAt: new Date().toISOString(),
     });
     localStorage.setItem(key, JSON.stringify(history.slice(0, 30)));
@@ -325,6 +351,19 @@ async function interpret() {
     });
     parsed = response.parsed;
     parseSource = response.source;
+    if (parseSource === 'gemini') {
+      const choice = (rule) => {
+        if (!rule) return '';
+        if (rule.zone_id) return 'zone:' + rule.zone_id;
+        const zones = booking.session.zones.filter((zone) => zone.grade === rule.grade);
+        return zones.length === 1 ? 'zone:' + zones[0].id : 'grade:' + rule.grade;
+      };
+      formState.quantity = parsed.seat_count;
+      formState.primaryChoice = choice(parsed.primary);
+      formState.primaryCap = parsed.primary.max_price_krw;
+      formState.fallbackChoice = choice(parsed.fallback_rules[0]);
+      formState.fallbackCap = parsed.fallback_rules[0]?.max_price_krw || '';
+    }
     stageIndex = 1;
     render();
   } catch (error) {
@@ -336,6 +375,11 @@ async function interpret() {
 
 async function joinQueue() {
   if (!parsed || busy) return;
+  if (paymentMode === 'wallet') {
+    const wallet = window.FairQueueWallet?.state();
+    if (!wallet?.address || !wallet.configuration?.enabled) { showError('Connect a buyer wallet to the enabled Devnet escrow service first.'); return; }
+    buyerAddress = wallet.address;
+  }
   busy = true;
   const button = body.querySelector('[data-action="join"]');
   button.disabled = true;
@@ -346,7 +390,7 @@ async function joinQueue() {
       event: booking.session.id, user_id: userId, conditions: parsed
     });
     queueId = snapshot.queue_id;
-    sessionStorage.setItem(queueKey, JSON.stringify({ sessionId: booking.session.id, queueId }));
+    sessionStorage.setItem(queueKey, JSON.stringify({ sessionId: booking.session.id, queueId, paymentMode, payer: buyerAddress, conditions: parsed }));
     stageIndex = 2;
     render(snapshot);
     schedulePoll();
@@ -370,7 +414,9 @@ async function pollQueue() {
     const query = new URLSearchParams({ event: booking.session.id, queue_id: queueId });
     const snapshot = await api('/queue/my-turn?' + query);
     render(snapshot);
-    if (snapshot.is_my_turn) {
+    if (['SETTLED', 'REFUNDED'].includes(snapshot.status)) {
+      await checkExistingPayment();
+    } else if (snapshot.is_my_turn || ['OFFERED', 'REFUND_PENDING'].includes(snapshot.status)) {
       stageIndex = 3;
       render();
       await settle();
@@ -385,21 +431,47 @@ async function pollQueue() {
 
 async function settle() {
   if (busy || result) return;
+  if (settling) return;
+  settling = true;
   busy = true;
   try {
-    result = await post('/demo/settle-offer', {
-      event: booking.session.id, queue_id: queueId
-    });
+    settlementError = null;
+    if (paymentMode === 'wallet') {
+      result = await window.FairQueueWallet.settle({ event: booking.session.id, queueId, conditions: parsed, payer: buyerAddress,
+        onQuote: (quote) => new Promise((resolve, reject) => {
+          walletQuote = quote; walletPhase = 'review-deposit'; approval = { resolve, reject }; render();
+        }),
+        onSubmitting: () => { walletPhase = 'submitting'; render(); },
+      });
+    } else result = await post('/demo/settle-offer', { event: booking.session.id, queue_id: queueId });
     sessionStorage.removeItem(queueKey);
     saveBookingHistory();
     render();
   } catch (error) {
     settlementError = 'Settlement could not be confirmed: ' + error.message +
-      '. Do not submit a second payment request. Queue ID: ' + queueId;
+      (paymentMode === 'wallet' && walletPhase !== 'submitting' ? '. No signed deposit was submitted by this attempt.' : '. Do not submit a second payment request.') + ' Queue ID: ' + queueId;
     render();
   } finally {
     busy = false;
+    settling = false;
   }
+}
+
+async function checkExistingPayment() {
+  try {
+    const query = new URLSearchParams({ event: booking.session.id, queue_id: queueId });
+    if (buyerAddress) query.set('payer', buyerAddress);
+    const response = await api('/queue/result?' + query);
+    if (response.result) { result = response.result; stageIndex = 3; saveBookingHistory(); sessionStorage.removeItem(queueKey); render(); }
+    else { settlementError = response.payment_unknown ? 'Payment requires server reconciliation. Do not pay again.' : 'No completed payment result is available yet.'; render(); }
+  } catch (error) { showError(error.message); }
+}
+async function cancelWalletBooking() {
+  try {
+    await post('/queue/cancel', { event: booking.session.id, queue_id: queueId, payer: buyerAddress });
+    sessionStorage.removeItem(queueKey);
+    location.href = document.getElementById('backLink').href;
+  } catch (error) { showError(error.message); }
 }
 
 function openModal() {
@@ -409,6 +481,7 @@ function openModal() {
 }
 
 function closeModal() {
+  if (approval) { approval.reject(new Error('Payment approval cancelled')); approval = null; }
   clearTimeout(pollTimer);
   overlay.classList.remove('open');
 }
@@ -421,9 +494,18 @@ body.addEventListener('click', (event) => {
   if (action === 'join') joinQueue();
   if (action === 'edit') { stageIndex = 0; render(); }
   if (action === 'return') location.href = document.getElementById('backLink').href;
+  if (action === 'connect-wallet') window.FairQueueWallet?.connect(document.getElementById('walletChoice')?.value).catch((error) => showError(error.message));
+  if (action === 'disconnect-wallet') window.FairQueueWallet?.disconnect().catch((error) => showError(error.message));
+  if (action === 'refresh-wallet') window.FairQueueWallet?.refreshBalance().catch((error) => showError(error.message));
+  if (action === 'approve-wallet' && approval) { const pending = approval; approval = null; walletPhase = 'awaiting-wallet'; render(); pending.resolve(); }
+  if (action === 'cancel-wallet' && approval) { const pending = approval; approval = null; walletPhase = 'cancelled'; pending.reject(new Error('Payment approval cancelled')); cancelWalletBooking(); }
+  if (action === 'cancel-booking') cancelWalletBooking();
+  if (action === 'payment-status') checkExistingPayment();
+  if (action === 'retry-wallet' && !settling) { walletQuote = null; walletPhase = ''; settle(); }
 });
 body.addEventListener('change', (event) => {
   const select = event.target;
+  if (select.name === 'paymentMode') { paymentMode = select.value; renderParsed(); return; }
   if (select.id !== 'primaryZone' && select.id !== 'fallbackZone') return;
   const isFallback = select.id === 'fallbackZone';
   const input = document.getElementById(isFallback ? 'fallbackCap' : 'primaryCap');
@@ -435,6 +517,7 @@ body.addEventListener('change', (event) => {
   select.dataset.previousChoice = select.value;
   if (isFallback) document.getElementById('fallbackCapRow').classList.toggle('is-hidden', !current);
 });
+window.addEventListener('fairqueue-wallet-change', updateWalletPane);
 overlay.addEventListener('click', (event) => { if (event.target === overlay) closeModal(); });
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeModal(); });
 
@@ -469,6 +552,7 @@ document.addEventListener('keydown', (event) => { if (event.key === 'Escape') cl
     const active = JSON.parse(sessionStorage.getItem(queueKey) || 'null');
     if (active?.sessionId === session.id && active.queueId) {
       queueId = active.queueId;
+      paymentMode = active.paymentMode || 'demo'; buyerAddress = active.payer || null; parsed = active.conditions || null;
       stageIndex = 2;
       openModal();
     }
