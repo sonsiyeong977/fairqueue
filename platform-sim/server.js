@@ -800,6 +800,10 @@ async function callSettleServer(eventState, queueEntry, offeredSeat) {
     error.paymentRequired = response.headers.get("PAYMENT-REQUIRED");
     error.paymentBody = body;
     if (payment && ["READY", "PREPARING"].includes(body.payment_status)) queueEntry.payment_unknown = false;
+    if (payment && body.payment_status === "REJECTED_UNFUNDED" && !body.fund_tx) {
+      queueEntry.payment_unknown = false;
+      queueEntry.payment_rejected_unfunded = true;
+    }
     throw error;
   }
   if (payment) {
@@ -1179,7 +1183,7 @@ app.get("/queue/result", (req, res) => {
   const entry = findQueueEntry(eventState, req.query);
   if (!entry) return res.status(404).json({ error: "Queue entry not found" });
   if (entry.agent_payment?.payer && entry.agent_payment.payer !== req.query.payer) return res.status(403).json({ error: "Reconnect the payer wallet for this booking" });
-  res.json({ status: entry.status, payment_unknown: Boolean(entry.payment_unknown), result: entry.completed_result || null });
+  res.json({ status: entry.status, payment_unknown: Boolean(entry.payment_unknown), payment_rejected_unfunded: Boolean(entry.payment_rejected_unfunded), result: entry.completed_result || null });
 });
 
 app.post("/queue/cancel", async (req, res) => {
@@ -1479,7 +1483,7 @@ app.post("/demo/settle-offer", async (req, res) => {
       if (activeEntry) activeEntry.payment_wait_until = error.paymentBody.accepts?.[0]?.extra?.expires_at || 0;
       return res.status(402).json(error.paymentBody);
     }
-    res.status(error.status || 500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message, payment_rejected_unfunded: Boolean(activeEntry?.payment_rejected_unfunded) });
   } finally {
     if (activeEntry) activeEntry.processing = false;
   }

@@ -54,7 +54,10 @@ Reviewed conditions -> official queue -> seat hold
 
 The server binds the quote to buyer, event, queue, conditions, and offer. The client
 checks payer, seller, authority, program, escrow PDA, queue, amount, expiry, and the
-single deposit instruction before signing. The server verifies the buyer signature
+single deposit instruction before signing. New quotes explicitly prepend a fixed
+200,000-unit compute limit and zero priority fee to prevent wallet-added fee
+instructions from changing the quoted message. No other instructions or fee
+changes are accepted. The server verifies the buyer signature
 and exact quoted message. Completed retries reuse the recorded result. Uncertain
 deposit or finalization enters `RECONCILIATION_REQUIRED` and blocks another payment.
 Authenticated status: `GET /x402/payments/:paymentId` on the settlement server.
@@ -144,11 +147,32 @@ the program does not close escrow accounts. The backend must submit and confirm
 refund, so RPC/server downtime can delay it. Buyer-triggered timeout reclaim is
 not implemented. Add it and durable recovery before promising instant refunds.
 
+Quotes use a fresh confirmed blockhash after balance/rent checks and expire within
+30 seconds of obtaining it. Submission uses matching confirmed preflight and the
+blockhash context slot. Expired or explicitly blockhash-rejected deposits enter
+`REJECTED_UNFUNDED` and can be cancelled; ambiguous sends or failed finalization
+still require reconciliation and cannot trigger a second deposit.
+
 Tests use real Solana transaction serialization and buyer signatures with stub
 chain submission/finalization. They cover tampering, caps, repeated requests, refund
 decisions, ambiguous submission, failed refunds, and hold protection through the
 platform HTTP 402 handshake. They do not prove live Devnet x402 settlement.
 English Gemini calls and desktop/mobile UI checks were tested separately.
+
+On October 9, 2026, a Phantom buyer signed an actual Devnet x402 escrow deposit
+and the authority completed release. Both transactions were checked against the
+Devnet RPC, including the buyer fee payer, matching order ID, and success status.
+The buyer-wallet refund rehearsal was also verified on Devnet: order
+`16248817991128837054` deposited and refunded 10,000 lamports to the buyer.
+The buyer's deposit fee was 5,000 lamports; 1,270,000 lamports remained as escrow
+storage balance. The authority funded the refund transaction fee.
+
+Verified [deposit](https://explorer.solana.com/tx/3oSTLVPvos9b584dbzy6d6QBDyVQXaSatuispFw4mrn9Fv7tgtByAabxkbfizHYMTmpUcFcVPvtCviZmHWS2Mzga?cluster=devnet)
+and [refund](https://explorer.solana.com/tx/5MWJk35aEwQvYcL3eeixp6TAyreTKmovhHyzvgroVSZSxUmubtLUh187SCEEZ2bPtdnKuRTFcWYBgFXKBuiDMCE8?cluster=devnet).
+
+The result UI separates
+catalog KRW prices from SOL principal, identifies the funding wallet, and explains
+unreturned rent and fees. Expired unsigned quotes disable approval.
 
 References:
 - https://solana.com/docs/payments/agentic-payments/x402

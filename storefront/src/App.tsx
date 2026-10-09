@@ -86,6 +86,10 @@ type BookingRecord = {
   seats: number[];
   totalKrw: number;
   txUrl: string | null;
+  depositTxUrl?: string | null;
+  paymentMode?: "demo" | "wallet";
+  payer?: string | null;
+  principalLamports?: string | null;
   completedAt: string;
 };
 
@@ -1014,7 +1018,8 @@ function Auth({
         </p>
         <p className="auth-disclaimer">
           Demo profiles are stored only in this browser. Passwords are not
-          verified or saved, and no payment is processed.
+          verified or saved. This profile does not authenticate or connect a wallet;
+          Devnet payment approval is a separate step during booking.
         </p>
       </div>
     </main>
@@ -1055,12 +1060,17 @@ function MyPage({ user }: { user: DemoUser | null }) {
                     <h3>{event?.title || booking.eventId}</h3>
                     <p>{session ? `${session.date} · ${session.time}` : booking.sessionId} · {booking.quantity} ticket{booking.quantity === 1 ? "" : "s"}</p>
                     {booking.zone && <p>{booking.zone}{booking.seats.length ? ` · Seats ${booking.seats.join(", ")}` : ""}</p>}
+                    {booking.paymentMode && <p>{booking.paymentMode === "wallet" ? "Buyer wallet · Devnet" : "Server demo wallet · Devnet"}</p>}
+                    {booking.paymentMode === "wallet" && booking.principalLamports && <p>{booking.status === "REFUNDED" ? "Principal returned" : "Principal released"}: {Number(booking.principalLamports) / 1000000000} SOL</p>}
+                    {booking.status === "REFUNDED" && booking.paymentMode === "wallet" && <p>Network fees are not refunded; escrow account rent remains locked.</p>}
                   </div>
                   <div className="booking-record-end">
-                    <strong>{booking.status === "SETTLED" ? money(booking.totalKrw) : "Refunded"}</strong>
+                    <strong>{booking.status === "SETTLED" ? money(booking.totalKrw) : "Principal refunded"}</strong>
+                    {booking.status === "SETTLED" && <p>Reference price (KRW)</p>}
                     {booking.txUrl?.startsWith("https://explorer.solana.com/tx/") && (
-                      <a href={booking.txUrl} target="_blank" rel="noopener noreferrer">View Devnet transaction <ArrowRight size={15} /></a>
+                      <a href={booking.txUrl} target="_blank" rel="noopener noreferrer">{booking.status === "REFUNDED" ? "View refund" : "View settlement"} <ArrowRight size={15} /></a>
                     )}
+                    {booking.depositTxUrl?.startsWith("https://explorer.solana.com/tx/") && <a href={booking.depositTxUrl} target="_blank" rel="noopener noreferrer">View deposit <ArrowRight size={15} /></a>}
                   </div>
                 </article>
               );

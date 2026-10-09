@@ -18,6 +18,7 @@ let walletPhase = '';
 let walletQuote = null;
 let approval = null;
 let settling = false;
+let quoteTimer = null;
 
 const html = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -102,6 +103,10 @@ function placementLabel(rule) {
   return 'No adjacency requirement';
 }
 
+function ruleSummary(rule) {
+  return [parsed.seat_count > 1 && (rule.adjacency_required || rule.allow_split_seats) ? placementLabel(rule) : '', rule.avoid_restricted_view ? 'Restricted view excluded' : ''].filter(Boolean).join(' · ');
+}
+
 function renderConditions() {
   const { event, session, intent } = booking;
   const chosen = session.zones.find((zone) => zone.id === intent.preferredZoneId);
@@ -135,7 +140,7 @@ function renderConditions() {
     '<div class="field"><label for="fallbackCap">Alternative max per ticket (KRW)</label>',
     '<input id="fallbackCap" type="number" min="1" placeholder="Face value if blank" value="',
     html(formState.fallbackCap), '"></div></div>',
-    '<p class="flow-note">A section is a booking condition, not a held seat. The next screen shows the interpreted request. Devnet uses a demo agent wallet, not your funds.</p>',
+    '<p class="flow-note">No seats reserved yet.</p>',
     '<button class="primary-btn" data-action="interpret">Interpret request</button>'
   ].join('');
 }
@@ -151,7 +156,7 @@ function renderParsed() {
     ? fallbacks.map((rule, index) =>
       '<div class="parsed-row"><span class="k">Alternative ' + (index + 1) + '</span><span class="v">' +
       html(ruleLabel(rule)) + ' &middot; ' + money(rule.max_price_krw) + ' / ticket<br><small>' +
-      html(placementLabel(rule)) + '</small></span></div>').join('')
+      html(ruleSummary(rule)) + '</small></span></div>').join('')
     : '<div class="parsed-row"><span class="k">Alternatives</span><span class="v">None</span></div>';
   body.innerHTML = [
     '<h2 class="step-title">Review your conditions</h2>',
@@ -160,19 +165,17 @@ function renderParsed() {
     '<div class="parsed-card">',
     '<div class="parsed-row"><span class="k">First choice</span><span class="v">',
     html(ruleLabel(parsed.primary)), ' &middot; ', money(parsed.primary.max_price_krw), ' / ticket<br><small>',
-    html(placementLabel(parsed.primary)), '</small></span></div>',
+    html(ruleSummary(parsed.primary)), '</small></span></div>',
     fallbackRows,
     '<div class="parsed-row"><span class="k">Quantity</span><span class="v">', parsed.seat_count, '</span></div>',
-    '<div class="parsed-row"><span class="k">Restricted view</span><span class="v">',
-    parsed.avoid_restricted_view ? 'Excluded' : 'Allowed', '</span></div>',
     '</div>',
     '<fieldset class="payment-options"><legend>Payment method</legend>',
     '<label><input type="radio" name="paymentMode" value="demo"', paymentMode === 'demo' ? ' checked' : '', '>Server demo wallet</label>',
     '<label><input type="radio" name="paymentMode" value="wallet"', paymentMode === 'wallet' ? ' checked' : '', '>My wallet &middot; Devnet</label></fieldset>',
     '<div id="walletPane" class="wallet-pane"', paymentMode === 'wallet' ? '' : ' hidden', '></div>',
     '<p class="flow-note">', paymentMode === 'wallet'
-      ? 'At your turn, review the Devnet deposit and approve it in your wallet. Verified offers settle automatically; a refund returns the deposit to this wallet. Fees and escrow account rent are separate.'
-      : 'No payment has been made. The server demo wallet funds this booking at your queue turn.', '</p>',
+      ? 'Devnet test SOL only. Wallet approval required at your turn.'
+      : 'Devnet test SOL only. Funded by the demo wallet.', '</p>',
     '<button class="primary-btn" data-action="join">Confirm & join queue</button>',
     '<button class="ghost-btn" data-action="edit">Edit conditions</button>'
   ].join('');
@@ -224,23 +227,32 @@ function renderSettlement() {
   if (!result) {
     if (paymentMode === 'wallet' && walletQuote && walletPhase === 'review-deposit') {
       body.innerHTML = '<h2 class="step-title">Review your Devnet deposit</h2>' +
-        '<p class="step-sub">' + (walletQuote.decision === 'REFUND' ? 'No matching offer was found. This test deposit will be refunded to your wallet.' : 'The held offer passed your conditions. Approve its escrow deposit in your wallet.') + '</p>' +
-        '<div class="parsed-card">' + [['Deposit', sol(walletQuote.amount)], ['Account rent', sol(walletQuote.rent)], ['Network fee', sol(walletQuote.fee)], ['Total debit', sol(walletQuote.total)]].map(([label, value]) =>
+        '<p class="step-sub">' + (walletQuote.decision === 'REFUND' ? 'No matching offer was found. This refund rehearsal creates an escrow deposit, then requests its principal back. No seats will be booked.' : 'The held offer passed your conditions. Approve its escrow deposit in your wallet.') + '</p>' +
+        '<div class="parsed-card">' + [['Deposit principal', sol(walletQuote.amount)], ['Locked account rent', sol(walletQuote.rent)], ['Deposit network fee', sol(walletQuote.fee)], ['Estimated wallet debit', sol(walletQuote.total)]].map(([label, value]) =>
           '<div class="parsed-row"><span class="k">' + label + '</span><span class="v">' + value + '</span></div>').join('') + '</div>' +
         '<p class="flow-note">Rent remains in the escrow account after settlement or refund. Network fees are not refunded.</p>' +
         '<p class="flow-note">Payer: <strong>' + html(walletQuote.payer) + '</strong></p>' +
+        '<p class="flow-note" id="quoteExpiry" role="status"></p>' +
         '<button class="primary-btn" data-action="approve-wallet">Approve deposit in wallet</button>' +
         '<button class="ghost-btn" data-action="cancel-wallet">Cancel payment</button>';
+      const updateExpiry = () => {
+        const seconds = Math.max(0, Math.ceil((walletQuote.expiresAt - Date.now()) / 1000));
+        document.getElementById('quoteExpiry').textContent = seconds > 0 ? 'Quote valid for ' + seconds + ' seconds' : 'Quote expired. Cancel this unpaid booking and start again.';
+        body.querySelector('[data-action="approve-wallet"]').disabled = seconds === 0;
+        if (seconds === 0) { clearInterval(quoteTimer); quoteTimer = null; }
+      };
+      updateExpiry();
+      if (walletQuote.expiresAt > Date.now()) quoteTimer = setInterval(updateExpiry, 1000);
       return;
     }
-    body.innerHTML = '<h2 class="step-title">Checking the seat offer</h2>' +
-      '<p class="step-sub">' + (walletPhase === 'awaiting-wallet' ? 'Approve the deposit in your wallet. Your seats remain held during this short authorization window.' :
+    body.innerHTML = '<h2 class="step-title">' + (settlementError ? (paymentMode === 'wallet' && walletPhase !== 'submitting' ? 'Wallet approval stopped' : 'Payment confirmation pending') : 'Checking the seat offer') + '</h2>' +
+      '<p class="step-sub">' + (walletPhase === 'awaiting-wallet' ? (walletQuote?.decision === 'REFUND' ? 'Approve the refund rehearsal deposit in your wallet. No seats are reserved.' : 'Approve the deposit in your wallet before the quote expires. The selected seats are held by this demo platform.') :
         walletPhase === 'submitting' ? 'Confirming your buyer-signed deposit and escrow settlement on Devnet.' : 'The platform is checking current inventory and preparing the escrow transaction on Devnet.') + '</p>' +
       '<div class="bar-bg"><div class="bar-fill"></div></div>' +
       '<p class="flow-note">Queue ID: <strong>' + html(queueId) + '</strong>. Please keep this page open.</p>' +
       (settlementError ? '<p class="flow-error">' + html(settlementError) + '</p>' : '') +
       (paymentMode === 'wallet' && settlementError ? '<div id="walletPane" class="wallet-pane"></div><button class="ghost-btn" data-action="payment-status">Check existing payment</button>' +
-        (walletPhase !== 'submitting' ? '<button class="ghost-btn" data-action="retry-wallet">Continue wallet approval</button><button class="ghost-btn" data-action="cancel-booking">Cancel booking</button>' : '') : '');
+        (walletPhase !== 'submitting' ? (walletPhase !== 'rejected-unfunded' ? '<button class="ghost-btn" data-action="retry-wallet">Continue wallet approval</button>' : '') + '<button class="ghost-btn" data-action="cancel-booking">Cancel booking</button>' : '') : '');
     updateWalletPane();
     return;
   }
@@ -264,8 +276,9 @@ function renderSettlement() {
     '<div class="result-hero"><div class="icon">', settled ? '✓' : '↩', '</div>',
     '<h2>', settled ? 'Booking settled on Devnet' : 'Escrow refunded on Devnet', '</h2>',
     '<p>', detail, '</p></div>',
-    settled ? '<div class="parsed-card"><div class="parsed-row"><span class="k">Total ticket price</span><span class="v">' +
+    settled ? '<div class="parsed-card"><div class="parsed-row"><span class="k">Reference price (KRW)</span><span class="v">' +
       money(result.order.price_krw * result.order.count) + '</span></div></div>' : '',
+    paymentMode === 'wallet' && settlement.escrow_amount_lamports ? '<div class="parsed-card"><div class="parsed-row"><span class="k">' + (settled ? 'Escrow principal released' : 'Principal returned to buyer') + '</span><span class="v">' + sol(settlement.escrow_amount_lamports) + '</span></div></div>' : '',
     '<div class="reasoning-banner"><b>Offer review</b><br>' + html(offerReview) + '</div>',
     '<p class="flow-note">Independent verification: ' + html(verificationReview) + '</p>',
     '<div class="tx-card"><div class="tlabel">DEPOSIT TX</div><div class="thash">',
@@ -273,14 +286,16 @@ function renderSettlement() {
     '<div class="tx-card"><div class="tlabel">', settled ? 'RELEASE TX' : 'REFUND TX',
     '</div><div class="thash">', html(settlement.settle_tx || '-'), '</div></div>',
     explorerLink(settlement.explorer_urls?.fund, 'View deposit on Solana Explorer'),
-    explorerLink(settlement.explorer_urls?.settle, 'View settlement on Solana Explorer'),
+    explorerLink(settlement.explorer_urls?.settle, settled ? 'View settlement on Solana Explorer' : 'View refund on Solana Explorer'),
     paymentMode === 'wallet' ? '<p class="flow-note">Buyer wallet: <strong>' + html(settlement.escrow_user || buyerAddress) + '</strong></p>' : '',
-    '<p class="flow-note">', paymentMode === 'wallet' ? 'Paid from your connected Devnet wallet. No card payment or real ticket issuance occurs here.' : 'Devnet uses a demo agent wallet. No card payment or real ticket issuance occurs here.', '</p>',
+    !settled && paymentMode === 'wallet' ? '<p class="flow-note">Network fees are not refunded; account rent remains locked in escrow.</p>' : '',
+    '<p class="flow-note">Devnet test transaction · No real ticket issued.</p>',
     '<button class="ghost-btn" data-action="return">Back to event</button>'
   ].join('');
 }
 
 function render(snapshot) {
+  clearInterval(quoteTimer); quoteTimer = null;
   setBar(stageIndex);
   if (!booking) {
     body.innerHTML = '<p class="flow-error">No valid booking request was found. Select a performance in the event catalog first.</p>';
@@ -309,6 +324,8 @@ function saveBookingHistory() {
       totalKrw: result.order ? result.order.price_krw * result.order.count : 0,
       txUrl: result.settle_result?.explorer_urls?.settle || null,
       paymentMode, payer: buyerAddress,
+      depositTxUrl: result.settle_result?.explorer_urls?.fund || null,
+      principalLamports: result.settle_result?.escrow_amount_lamports || null,
       completedAt: new Date().toISOString(),
     });
     localStorage.setItem(key, JSON.stringify(history.slice(0, 30)));
@@ -448,8 +465,10 @@ async function settle() {
     saveBookingHistory();
     render();
   } catch (error) {
+    walletQuote = null;
+    if (error.name === 'DepositNotSubmittedError') walletPhase = 'rejected-unfunded';
     settlementError = 'Settlement could not be confirmed: ' + error.message +
-      (paymentMode === 'wallet' && walletPhase !== 'submitting' ? '. No signed deposit was submitted by this attempt.' : '. Do not submit a second payment request.') + ' Queue ID: ' + queueId;
+      (walletPhase === 'rejected-unfunded' ? '. No deposit was broadcast.' : paymentMode === 'wallet' && walletPhase !== 'submitting' ? '. No signed deposit was submitted by this attempt.' : '. Do not submit a second payment request.') + ' Queue ID: ' + queueId;
     render();
   } finally {
     busy = false;
@@ -463,7 +482,11 @@ async function checkExistingPayment() {
     if (buyerAddress) query.set('payer', buyerAddress);
     const response = await api('/queue/result?' + query);
     if (response.result) { result = response.result; stageIndex = 3; saveBookingHistory(); sessionStorage.removeItem(queueKey); render(); }
-    else { settlementError = response.payment_unknown ? 'Payment requires server reconciliation. Do not pay again.' : 'No completed payment result is available yet.'; render(); }
+    else {
+      if (response.payment_rejected_unfunded) walletPhase = 'rejected-unfunded';
+      settlementError = response.payment_rejected_unfunded ? 'The deposit was rejected before submission. Cancel this booking and start again.' : response.payment_unknown ? 'Payment requires server reconciliation. Do not pay again.' : 'No completed payment result is available yet.';
+      render();
+    }
   } catch (error) { showError(error.message); }
 }
 async function cancelWalletBooking() {
@@ -481,6 +504,7 @@ function openModal() {
 }
 
 function closeModal() {
+  clearInterval(quoteTimer); quoteTimer = null;
   if (approval) { approval.reject(new Error('Payment approval cancelled')); approval = null; }
   clearTimeout(pollTimer);
   overlay.classList.remove('open');

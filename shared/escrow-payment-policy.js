@@ -1,5 +1,5 @@
 const anchor = require("@coral-xyz/anchor");
-const { Transaction, PublicKey, SystemProgram } = require("@solana/web3.js");
+const { Transaction, PublicKey, SystemProgram, ComputeBudgetProgram } = require("@solana/web3.js");
 const { offerMatchesRule } = require("../agent/offer-policy");
 const idl = require("../anchor-escrow/idl/anchor_escrow.json");
 
@@ -7,6 +7,11 @@ const NETWORK = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
 const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 const SCHEME = "fairqueue-escrow";
 const ASSET = "native-sol";
+const DEPOSIT_COMPUTE_UNIT_LIMIT = 200000;
+function depositComputeBudget() {
+  return [ComputeBudgetProgram.setComputeUnitLimit({ units: DEPOSIT_COMPUTE_UNIT_LIMIT }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 0 })];
+}
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
   if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
@@ -32,12 +37,20 @@ class EscrowPaymentPolicy {
   }
   validate(version, requirement) {
     const extra = requirement.extra;
-    if (version !== 2 || requirement.scheme !== SCHEME || requirement.network !== NETWORK || requirement.asset !== ASSET ||
-        !/^\d+$/.test(requirement.amount) || BigInt(requirement.amount) <= 0n || BigInt(requirement.amount) > this.remaining ||
-        extra?.expires_at <= Date.now() || !Number.isFinite(extra?.expires_at) || extra.queue_id !== this.queueId ||
-        extra.payer !== this.payer.toBase58() || extra.authority !== this.authority.toBase58() ||
-        extra.seller !== this.seller.toBase58() || extra.program_id !== idl.address) {
-      throw new Error("Escrow payment exceeds or differs from the buyer's authorization");
+    if (version !== 2 || requirement.scheme !== SCHEME || requirement.network !== NETWORK || requirement.asset !== ASSET) {
+      throw new Error("The payment scheme, version, network or asset differs from the buyer's authorization");
+    }
+    if (!/^\d+$/.test(requirement.amount) || BigInt(requirement.amount) <= 0n || BigInt(requirement.amount) > this.remaining) {
+      throw new Error(`Escrow payment exceeds the buyer's authorization: requested ${requirement.amount} lamports, authorized ${this.remaining} lamports`);
+    }
+    if (!Number.isFinite(extra?.expires_at)) throw new Error("The payment quote has no valid expiry time");
+    if (extra.expires_at <= Date.now()) {
+      throw new Error("The unsigned payment quote expired. Cancel this unpaid booking and start a new booking; no new signature was requested.");
+    }
+    const bindings = { queue_id: this.queueId, payer: this.payer.toBase58(), authority: this.authority.toBase58(),
+      seller: this.seller.toBase58(), program_id: idl.address };
+    for (const [field, expected] of Object.entries(bindings)) {
+      if (extra[field] !== expected) throw new Error(`The payment ${field} differs from the buyer's authorization`);
     }
     if (this.conditions) {
       if (canonicalJson(extra.user_conditions) !== canonicalJson(this.conditions)) throw new Error("The quoted conditions differ from your approved request");
@@ -54,11 +67,18 @@ class EscrowPaymentPolicy {
     seed.writeBigUInt64LE(BigInt(extra.order_id));
     const programId = new PublicKey(idl.address);
     const escrow = PublicKey.findProgramAddressSync([Buffer.from("escrow"), this.payer.toBuffer(), seed], programId)[0];
-    const instruction = transaction.instructions[0];
+    const instructions = transaction.instructions;
+    const budgets = depositComputeBudget();
+    const hasBudget = instructions.length === 3 && budgets.every((expected, index) => {
+      const actual = instructions[index];
+      return actual.programId.equals(expected.programId) && actual.keys.length === 0 && actual.data.equals(expected.data);
+    });
+    if (instructions.length !== 1 && !hasBudget) throw new Error("Only the fixed compute budget and authorized escrow deposit may be signed");
+    const instruction = instructions[hasBudget ? 2 : 0];
     const coder = new anchor.BorshInstructionCoder(idl);
     const expectedData = coder.encode("deposit", { order_id: new anchor.BN(extra.order_id), amount: new anchor.BN(requirement.amount), seller: this.seller });
     const expectedKeys = [this.payer, this.authority, escrow, SystemProgram.programId];
-    if (!transaction.feePayer?.equals(this.payer) || transaction.instructions.length !== 1 ||
+    if (!transaction.feePayer?.equals(this.payer) ||
         !instruction.programId.equals(programId) || !instruction.data.equals(expectedData) ||
         requirement.payTo !== escrow.toBase58() || instruction.keys.length !== expectedKeys.length ||
         instruction.keys.some((key, index) => !key.pubkey.equals(expectedKeys[index]) || key.isSigner !== (index === 0) || key.isWritable !== (index === 0 || index === 2))) {
@@ -72,4 +92,4 @@ class EscrowPaymentPolicy {
   }
 }
 
-module.exports = { EscrowPaymentPolicy, demoDepositLamports, NETWORK, DEVNET_GENESIS, SCHEME, ASSET };
+module.exports = { EscrowPaymentPolicy, demoDepositLamports, depositComputeBudget, NETWORK, DEVNET_GENESIS, SCHEME, ASSET };

@@ -80,6 +80,9 @@ test("catalog performances keep queue, inventory, and settlement separate", asyn
   }
 
   try {
+    const beforeSaleClock = realNow();
+    const beforeSale = Date.parse("2026-10-08T12:00:00+09:00");
+    Date.now = () => beforeSale + (realNow() - beforeSaleClock);
     const catalog = await request(base, "/catalog/events");
     assert.equal(catalog.body.events.length, 3);
     assert.equal(catalog.body.events.find((event) => event.id === "garden-of-time").status, "OPENING_SOON");

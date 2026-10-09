@@ -3,11 +3,12 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 const express = require("express");
 const anchor = require("@coral-xyz/anchor");
-const { Transaction, TransactionInstruction, PublicKey, Keypair, SystemProgram } = require("@solana/web3.js");
+const { Transaction, TransactionInstruction, PublicKey, Keypair, SystemProgram, ComputeBudgetProgram } = require("@solana/web3.js");
 const { x402Client, wrapFetchWithPayment } = require("@x402/fetch");
 const { decodePaymentRequiredHeader, encodePaymentSignatureHeader } = require("@x402/core/http");
 const { createEscrowPaymentHandler, NETWORK } = require("../agent/x402-escrow");
 const { EscrowSchemeClient } = require("../agent/x402-escrow-client");
+const { EscrowPaymentPolicy, depositComputeBudget } = require("../shared/escrow-payment-policy");
 const idl = require("../anchor-escrow/idl/anchor_escrow.json");
 
 test("x402 escrow binds buyer signatures, caches payment, and blocks ambiguous retries", async () => {
@@ -18,6 +19,7 @@ test("x402 escrow binds buyer signatures, caches payment, and blocks ambiguous r
   let finalizations = 0;
   let failDeposit = false;
   let failFinalize = false;
+  let rejectedUnfunded = false;
   const adapter = {
     prepare: async (body) => {
       const orderId = "123";
@@ -38,6 +40,7 @@ test("x402 escrow binds buyer signatures, caches payment, and blocks ambiguous r
     },
     deposit: async (bytes) => {
       assert.ok(Transaction.from(bytes).verifySignatures());
+      if (rejectedUnfunded) throw Object.assign(new Error("Blockhash expired before broadcast"), { depositNotSubmitted: true });
       deposits += 1;
       if (failDeposit) throw new Error("RPC disconnected after submission");
       return "TEST_DEPOSIT";
@@ -69,6 +72,23 @@ test("x402 escrow binds buyer signatures, caches payment, and blocks ambiguous r
     const required = decodePaymentRequiredHeader(unpaid.headers.get("PAYMENT-REQUIRED"));
     assert.equal(required.accepts[0].scheme, "fairqueue-escrow");
     assert.equal(required.accepts[0].extra.payer, buyer.publicKey.toBase58());
+    const quotePolicy = new EscrowPaymentPolicy({ payer: buyer.publicKey, authority: authority.publicKey, seller: seller.publicKey,
+      queueId: "one", maxLamports: "50000" });
+    const requirement = required.accepts[0];
+    const quotedTransaction = Transaction.from(Buffer.from(requirement.extra.transaction, "base64"));
+    quotedTransaction.instructions = [...depositComputeBudget(), ...quotedTransaction.instructions];
+    const withTransaction = () => ({ ...requirement, extra: { ...requirement.extra,
+      transaction: quotedTransaction.serialize({ requireAllSignatures: false }).toString("base64") } });
+    assert.ok(quotePolicy.validate(2, withTransaction()));
+    quotedTransaction.instructions[1] = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 });
+    assert.throws(() => quotePolicy.validate(2, withTransaction()), /fixed compute budget/);
+    quotedTransaction.instructions[1] = depositComputeBudget()[1];
+    quotedTransaction.instructions.push(SystemProgram.transfer({ fromPubkey: buyer.publicKey, toPubkey: seller.publicKey, lamports: 1 }));
+    assert.throws(() => quotePolicy.validate(2, withTransaction()), /fixed compute budget/);
+    assert.throws(() => quotePolicy.validate(2, { ...requirement, amount: "50001" }), /requested 50001 lamports, authorized 50000/);
+    assert.throws(() => quotePolicy.validate(2, { ...requirement, extra: { ...requirement.extra, expires_at: 0 } }), /quote expired/);
+    assert.throws(() => quotePolicy.validate(2, { ...requirement, extra: { ...requirement.extra, payer: seller.publicKey.toBase58() } }), /payment payer differs/);
+    assert.throws(() => quotePolicy.validate(2, { ...requirement, network: "solana:mainnet" }), /network or asset differs/);
     assert.equal(deposits, 0);
     const wrongSigner = Transaction.from(Buffer.from(required.accepts[0].extra.transaction, "base64"));
     wrongSigner.recentBlockhash = Keypair.generate().publicKey.toBase58();
@@ -116,6 +136,14 @@ test("x402 escrow binds buyer signatures, caches payment, and blocks ambiguous r
     const depositsBeforeCancelledRetry = deposits;
     assert.equal((await clientFor(cancelBody.queue_id)(url, options(cancelBody))).status, 409);
     assert.equal(deposits, depositsBeforeCancelledRetry, "Cancelled authorization cannot submit a deposit");
+
+    rejectedUnfunded = true;
+    const expiredBody = { ...body, queue_id: "expired-before-broadcast" };
+    const preflightRejected = await clientFor(expiredBody.queue_id)(url, options(expiredBody));
+    assert.equal(preflightRejected.status, 422);
+    assert.equal((await preflightRejected.json()).payment_status, "REJECTED_UNFUNDED");
+    assert.equal((await fetch(cancelUrl, options(expiredBody))).status, 200);
+    rejectedUnfunded = false;
 
     failFinalize = false;
     process.env.SETTLE_SERVER_URL = url.replace(/\/pay$/, "");

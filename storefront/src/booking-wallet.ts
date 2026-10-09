@@ -11,7 +11,7 @@ import { EscrowPaymentPolicy, demoDepositLamports, NETWORK, SCHEME, ASSET } from
 globalThis.Buffer = Buffer;
 type Conditions = { primary: { max_price_krw: number }; fallback_rules: { max_price_krw: number }[]; seat_count: number };
 type Config = { enabled: boolean; authority: string; seller: string; network: string; program_id: string; max_lamports: string };
-type Quote = { amount: string; rent: number; fee: number; total: number; escrow: string; payer: string; decision: string };
+type Quote = { amount: string; rent: number; fee: number; total: number; escrow: string; payer: string; decision: string; expiresAt: number };
 const registry = getWallets();
 let wallet: Wallet | null = null;
 let account: WalletAccount | null = null;
@@ -87,7 +87,7 @@ async function settle(options: { event: string; queueId: string; conditions: Con
       if (![rent, fee].every((value) => Number.isSafeInteger(value) && value >= 0)) throw new Error('The escrow fee estimate is missing');
       const total = Number(requirement.amount) + rent + fee;
       if (await refreshBalance() < total) throw new Error('Add Devnet SOL to cover the deposit, account rent, and network fee');
-      await options.onQuote({ amount: requirement.amount, rent, fee, total, escrow: requirement.payTo, payer: signerAccount.address, decision: String(extra.final_decision) });
+      await options.onQuote({ amount: requirement.amount, rent, fee, total, escrow: requirement.payTo, payer: signerAccount.address, decision: String(extra.final_decision), expiresAt: Number(extra.expires_at) });
       if (account?.address !== signerAccount.address) throw new Error('The connected wallet changed');
       policy.validate(version, requirement);
       const unsignedMessage = transaction.serializeMessage();
@@ -95,7 +95,8 @@ async function settle(options: { event: string; queueId: string; conditions: Con
         account: signerAccount, chain: 'solana:devnet', transaction: transaction.serialize({ requireAllSignatures: false }),
       });
       const verified = Transaction.from(signed.signedTransaction);
-      if (!verified.serializeMessage().equals(unsignedMessage) || !verified.verifySignatures()) throw new Error('The wallet returned a different or invalid deposit transaction');
+      if (!verified.serializeMessage().equals(unsignedMessage)) throw new Error('The wallet changed the quoted transaction (including its fee settings). Nothing was submitted; cancel this unpaid booking.');
+      if (!verified.verifySignatures()) throw new Error('The wallet returned an invalid deposit signature. Nothing was submitted.');
       policy.validate(version, requirement);
       policy.consume(requirement.amount);
       options.onSubmitting();
@@ -107,7 +108,11 @@ async function settle(options: { event: string; queueId: string; conditions: Con
     body: JSON.stringify({ event: options.event, queue_id: options.queueId, payer: options.payer, payment_mode: 'x402' }),
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || `Payment could not be confirmed (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(result.error || `Payment could not be confirmed (${response.status})`);
+    if (result.payment_rejected_unfunded === true) error.name = 'DepositNotSubmittedError';
+    throw error;
+  }
   await refreshBalance().catch(() => undefined);
   return result;
 }

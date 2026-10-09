@@ -52,10 +52,11 @@ function createEscrowPaymentHandler({ prepare, deposit, finalize, now = Date.now
           const prepared = await prepare(body);
           record.message = prepared.transaction.serializeMessage();
           record.prepared = prepared;
-          record.expiresAt = now() + ttlMs;
+          record.expiresAt = Math.min(now() + ttlMs, prepared.quoteExpiresAt || Infinity);
+          if (record.expiresAt <= now()) throw new Error("Quote preparation took too long. Request a fresh offer.");
           record.requirement = {
             scheme: SCHEME, network: NETWORK, asset: ASSET, amount: prepared.amountLamports,
-            payTo: prepared.escrowState, maxTimeoutSeconds: Math.floor(ttlMs / 1000),
+            payTo: prepared.escrowState, maxTimeoutSeconds: Math.max(1, Math.floor((record.expiresAt - now()) / 1000)),
             extra: { ...prepared.extra, payer: body.payer, payment_id: record.id,
               request_digest: requestDigest, expires_at: record.expiresAt,
               transaction: prepared.transaction.serialize({ requireAllSignatures: false }).toString("base64") },
@@ -87,6 +88,10 @@ function createEscrowPaymentHandler({ prepare, deposit, finalize, now = Date.now
       record.status = "COMPLETE";
       return receipt(res, record);
     } catch (error) {
+      if (record?.status === "DEPOSIT_SUBMITTING" && error.depositNotSubmitted === true) {
+        record.status = "REJECTED_UNFUNDED";
+        return fail(res, 422, error.message, record);
+      }
       if (record && ["DEPOSIT_SUBMITTING", "FUNDED"].includes(record.status)) record.status = "RECONCILIATION_REQUIRED";
       return fail(res, 503, error.message, record);
     }
@@ -101,7 +106,7 @@ function createEscrowPaymentHandler({ prepare, deposit, finalize, now = Date.now
     const record = records.get(id);
     if (!record) return res.json({ cancelled: true });
     if (record.requirement?.extra.payer !== req.body.payer) return fail(res, 403, "The payer does not match this payment", record);
-    if (!["READY", "CANCELLED"].includes(record.status)) return fail(res, 409, "This payment cannot be cancelled before reconciliation", record);
+    if (!["READY", "REJECTED_UNFUNDED", "CANCELLED"].includes(record.status)) return fail(res, 409, "This payment cannot be cancelled before reconciliation", record);
     record.status = "CANCELLED";
     res.json({ cancelled: true });
   };

@@ -1,7 +1,7 @@
 const crypto = require("node:crypto");
 const anchor = require("@coral-xyz/anchor");
-const { PublicKey, SystemProgram } = require("@solana/web3.js");
-const { demoDepositLamports, DEVNET_GENESIS } = require("../shared/escrow-payment-policy");
+const { PublicKey, SystemProgram, SendTransactionError } = require("@solana/web3.js");
+const { demoDepositLamports, depositComputeBudget, DEVNET_GENESIS } = require("../shared/escrow-payment-policy");
 
 function createAnchorPaymentAdapter({ program, connection, authority, seller, decide }) {
   return {
@@ -27,17 +27,23 @@ function createAnchorPaymentAdapter({ program, connection, authority, seller, de
       const escrow = PublicKey.findProgramAddressSync([Buffer.from("escrow"), user.toBuffer(), seed], program.programId)[0];
       const transaction = await program.methods.deposit(new anchor.BN(orderId.toString()), new anchor.BN(amountLamports), seller)
         .accounts({ user, authority: authority.publicKey, escrowState: escrow, systemProgram: SystemProgram.programId }).transaction();
-      const latest = await connection.getLatestBlockhash("confirmed");
+      // Keep wallet-added priority fees from changing the already approved message.
+      transaction.instructions = [...depositComputeBudget(), ...transaction.instructions];
       transaction.feePayer = user;
+      const [rentLamports, balance] = await Promise.all([
+        connection.getMinimumBalanceForRentExemption(program.account.escrowState.size),
+        connection.getBalance(user, "confirmed"),
+      ]);
+      const { context, value: latest } = await connection.getLatestBlockhashAndContext("confirmed");
+      const quoteExpiresAt = Date.now() + 30000;
       transaction.recentBlockhash = latest.blockhash;
-      const rentLamports = await connection.getMinimumBalanceForRentExemption(program.account.escrowState.size);
       const feeLamports = (await connection.getFeeForMessage(transaction.compileMessage(), "confirmed")).value;
       if (feeLamports === null) throw new Error("The deposit blockhash expired; obtain a new offer");
-      if (await connection.getBalance(user, "confirmed") < amountLamports + rentLamports + feeLamports) {
+      if (balance < amountLamports + rentLamports + feeLamports) {
         throw new Error("Buyer Devnet SOL is insufficient for deposit, escrow rent, and the network fee");
       }
       return {
-        transaction, latest, orderId: orderId.toString(), user: user.toBase58(), seller: seller.toBase58(),
+        transaction, latest, minContextSlot: context.slot, quoteExpiresAt, orderId: orderId.toString(), user: user.toBase58(), seller: seller.toBase58(),
         escrowState: escrow.toBase58(), amountLamports: String(amountLamports), decision,
         extra: { program_id: program.programId.toBase58(), authority: authority.publicKey.toBase58(),
           seller: seller.toBase58(), order_id: orderId.toString(), queue_id: body.queue_id,
@@ -46,7 +52,17 @@ function createAnchorPaymentAdapter({ program, connection, authority, seller, de
       };
     },
     async deposit(bytes, prepared) {
-      const sig = await connection.sendRawTransaction(bytes, { skipPreflight: false, maxRetries: 2 });
+      const validity = await connection.isBlockhashValid(prepared.latest.blockhash, { commitment: "confirmed", minContextSlot: prepared.minContextSlot });
+      if (!validity.value) throw Object.assign(new Error("The deposit authorization expired before submission. Cancel this booking and request a fresh quote."), { depositNotSubmitted: true });
+      let sig;
+      try {
+        sig = await connection.sendRawTransaction(bytes, { skipPreflight: false, preflightCommitment: "confirmed", minContextSlot: prepared.minContextSlot, maxRetries: 2 });
+      } catch (error) {
+        if (error instanceof SendTransactionError && error.transactionError.message.includes("Transaction simulation failed: Blockhash not found")) {
+          throw Object.assign(new Error("The RPC rejected the deposit before submission because its blockhash was unavailable. Cancel this booking and request a fresh quote."), { depositNotSubmitted: true });
+        }
+        throw error;
+      }
       const confirmed = await connection.confirmTransaction({ ...prepared.latest, signature: sig }, "confirmed");
       if (confirmed.value.err) throw new Error(`Escrow deposit failed: ${JSON.stringify(confirmed.value.err)}`);
       return sig;
