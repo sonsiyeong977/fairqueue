@@ -263,15 +263,6 @@ fairqueue/
 
 ## Team
 
-**Team Tickety**
-
-| Name | Role | GitHub |
-|:---|:---|:---|
-| Siyeong Son | PM, Backend, AI, On-chain | [@sonsiyeong977](https://github.com/sonsiyeong977) |
-| Seeun Park | Queue System, Frontend | [@seeun68](https://github.com/seeun68) |
-
-Department of Data Science, Ewha Womans University
-
 ## License
 
 MIT
