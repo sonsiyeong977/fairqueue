@@ -8,7 +8,7 @@
 
 **Google Gemini + Solana Anchor Escrow + x402 Agent Payments**
 
-[Overview](#overview) | [Booking Flow](#booking-flow) | [Architecture](#architecture) | [Tech Stack](#tech-stack) | [Local Setup](#local-setup) | [Transactions](#devnet-transactions) | [Team](#team)
+[Try FairQueue](#try-fairqueue) | [Overview](#overview) | [Booking Flow](#booking-flow) | [Architecture](#architecture) | [Tech Stack](#tech-stack) | [Local Setup](#local-setup) | [Transactions](#devnet-transactions) | [Team](#team)
 
 </div>
 
@@ -17,7 +17,8 @@
 FairQueue is a condition-based ticket booking and payment layer. Buyers describe
 the seats they want, review the interpreted conditions, and join the platform
 queue. At their turn, the platform selects an offer, checks it against the approved
-conditions, and processes an escrow deposit followed by settlement or refund.
+conditions, and requests the buyer's wallet approval for an escrow deposit followed
+by settlement or refund.
 
 FairQueue operates within the platform's queue order rather than bypassing it.
 Gemini interprets booking intent; independent code validates the offer and payment
@@ -28,27 +29,55 @@ a musical, and a festival. Its storefront presents dates, sections, prices, sale
 status, ticket limits, and a seating guide before entering a booking session.
 Transactions use Devnet test SOL; KRW values are reference ticket prices.
 
+## Try FairQueue
+
+[Open FairQueue Ticket Storefront](https://fairqueue-storefront-preview-305088341641.asia-northeast3.run.app/storefront/).
+
+The buyer-wallet booking, settlement, and refund flows were tested with the
+**Phantom browser extension on Solana Devnet**. Prepare a wallet funded with
+Devnet test SOL and unlock the extension before starting.
+
+1. **Sign in.** Create an account, verify your email, and sign in.
+2. **Choose a performance.** Explore its seating guide, select a date and ticket
+   quantity, and click **Book with FairQueue**. Use **Save event** to revisit it later.
+3. **Set your conditions.** Describe preferred seats, a per-ticket budget, and
+   ordered alternatives, then click **Interpret request**.
+4. **Review and join.** Check the interpreted conditions, connect Phantom, and
+   click **Confirm & join queue**.
+5. **Approve the deposit.** At your turn, review the quoted Devnet SOL costs and
+   approve the deposit in Phantom. The escrow flow then completes settlement or refund.
+6. **Check the result.** Open the transaction links on Solana Explorer. In
+   **My account**, find booking history, saved events, and recently viewed performances.
+
 ## Booking Flow
 
-1. **Browse performances.** Select an event, date, ticket quantity, and optionally
+1. **Sign in.** Create a Firebase account or sign in, and verify your email before
+   joining a booking queue.
+2. **Browse performances.** Select an event, date, ticket quantity, and optionally
    a preferred section in the storefront.
-2. **Describe booking conditions.** Use English or Korean natural language, the
+3. **Describe booking conditions.** Use English or Korean natural language, the
    selection controls, or both.
-3. **Review the interpretation.** Gemini structures a primary rule and ordered
+4. **Review the interpretation.** Gemini structures a primary rule and ordered
    alternatives. The buyer checks sections, price caps, quantity, adjacency,
    split-seat permission, and restricted-view preferences.
-4. **Prepare your account and wallet.** Sign in with a verified Firebase account
-   and connect a buyer wallet through Wallet Standard on Solana Devnet.
-5. **Join the platform queue.** The buyer waits for the assigned turn. Seat
+   If Gemini is unavailable, the interface identifies the basic-parser result;
+   review every condition before proceeding.
+5. **Connect your wallet.** Connect a buyer wallet through Wallet Standard on
+   Solana Devnet and check its address and test SOL balance.
+6. **Join the platform queue.** The buyer waits for the assigned turn. Seat
    parsing does not reserve inventory.
-6. **Validate the offer.** At the queue turn, the platform creates a seat hold and
+7. **Validate the offer.** At the queue turn, the platform creates a seat hold and
    checks the offer against the approved rules with deterministic code.
-7. **Fund the escrow.** In browser-wallet mode, x402 requests an escrow deposit.
+8. **Fund the escrow.** In browser-wallet mode, x402 requests an escrow deposit.
    The client validates the transaction, displays its costs, and requests an
-   explicit buyer signature. The server demo mode signs with its own keypair.
-8. **Release or refund.** The authority releases principal to the seller for an
+   explicit buyer signature. Firebase account mode requires buyer-wallet payments;
+   server-funded demo payments are disabled in that mode.
+9. **Release or refund.** The authority releases principal to the seller for an
    accepted offer or refunds it to the escrow's buyer address. The result shows
    transaction signatures and Solana Explorer links.
+10. **Return to My Account.** Completed settlements and refunds are saved to the
+    authenticated user's Firestore booking history. Saved performances and recently
+    viewed events are also available in My Account, with browser-local storage.
 
 ### Natural-Language Example
 
@@ -81,8 +110,9 @@ Express Platform API
     |
     v
 Payment Mode
-    |-- Server demo wallet -> /settle
-    |-- Buyer wallet -> HTTP 402 -> validation -> signature -> /x402/settle
+    |-- Account mode: buyer wallet -> HTTP 402 -> validation -> signature
+    |                                              -> /x402/settle
+    |-- Simulator without account mode: server demo wallet -> /settle
     |
     v
 Solana Devnet Anchor Escrow
@@ -94,7 +124,7 @@ Solana Devnet Anchor Escrow
 Result + Explorer Links + Account Booking History in Firestore
 ```
 
-The platform API manages queue, inventory, hold, and order state in its process.
+The platform API manages the queue, inventory, holds, and orders.
 Firebase verifies email/password accounts. The platform validates ID tokens and
 uses the authenticated UID for queue ownership, profiles, and Firestore booking
 history. Saved and recently viewed events remain browser-local, keyed by UID. Escrow
@@ -146,7 +176,7 @@ fee. The refund demonstration creates a test deposit even when no offer matches.
 
 ### Prerequisites
 
-- Node.js and npm.
+- Node.js 22 or later and npm (Firebase Admin SDK requires Node.js 22 or later).
 - A Gemini API key and a model available to that API project.
 - A backend Solana keypair funded with Devnet SOL for transaction fees.
 - For buyer-wallet payments, a separate funded Devnet wallet in a Wallet
@@ -157,8 +187,8 @@ fee. The refund demonstration creates a test deposit even when no offer matches.
 ```bash
 git clone --branch main https://github.com/sonsiyeong977/fairqueue.git
 cd fairqueue
-npm install
-npm --prefix storefront install
+npm ci
+npm --prefix storefront ci
 npm --prefix storefront run build
 ```
 
@@ -215,12 +245,14 @@ runs in WSL, use the reachable WSL IP and settlement port for that URL.
 
 ### Run a Buyer-Wallet Booking
 
-1. Enable Solana Devnet in the wallet and fund the buyer with test SOL.
-2. Select a performance and review its interpreted booking conditions.
-3. Select **My wallet · Devnet**, connect, and check the address and balance.
-4. Join the queue, review the deposit costs, and approve the wallet signature
+1. Sign in and verify the account's email address.
+2. Enable Solana Devnet in the wallet and fund the buyer with test SOL.
+3. Select a performance and review its interpreted booking conditions.
+4. Connect the buyer wallet under **My wallet - Devnet**, and check the address and balance.
+5. Join the queue, review the deposit costs, and approve the wallet signature
    before the quote expires.
-5. Open the deposit and release/refund links on Solana Explorer.
+6. Open the deposit and release/refund links on Solana Explorer, then check the
+   saved record in My Account.
 
 For a refund demonstration, request one R 1 ticket for the ORBIT/9 November 20
 performance with a KRW 100,000 price cap and no alternatives. Its face value is
@@ -248,13 +280,30 @@ Anchor program: [618w9LmnDRNpmrTboeYfWgfgSDaDzghRzA577ciwjJuj](https://explorer.
 These examples were checked against Devnet transaction records for successful
 execution, buyer address, matching order IDs, and principal movement.
 
-## Hosted Dashboard
+## Hosted Storefront
+
+[Open FairQueue Ticket Storefront](https://fairqueue-storefront-preview-305088341641.asia-northeast3.run.app/storefront/).
+
+The Cloud Run preview serves the storefront and platform API from `main` and
+connects to a separate settlement service. It uses Firebase Authentication and
+Firestore in project `fairqueue-511412` for account profiles and completed booking
+history. Sign in, verify your email, and connect a funded Devnet wallet to book.
+The events are fictional and transactions use test SOL; this is not real ticket
+issuance or a card payment service.
+
+For this deployment, enable `identitytoolkit.googleapis.com` in both the Firebase
+project and the Cloud Run project. Give the platform runtime service account
+`roles/firebaseauth.viewer` and `roles/datastore.user` on the Firebase project.
+Use `FIREBASE_PROJECT_ID=fairqueue-511412` on the platform service and retain its
+settlement URL and shared API-key secret configuration. Cloud Run uses its runtime
+service account credentials, not a local ADC file.
+
+### Legacy Dashboard
 
 [Open the Cloud Run dashboard](https://fairqueue-dashboard-305088341641.asia-northeast3.run.app/dashboard/).
 
-The hosted dashboard uses separate platform and settlement Cloud Run services.
-The browser-wallet storefront described here runs from the `ver2` source and local
-setup; the hosted URL is the existing dashboard deployment.
+This is the earlier operator/demo deployment, separate from the authenticated
+storefront preview linked above.
 
 ## Project Structure
 
@@ -276,4 +325,4 @@ fairqueue/
 
 ## License
 
-MIT
+Package metadata declares `ISC`.
