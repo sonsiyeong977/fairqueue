@@ -1,5 +1,11 @@
 .git
 .env
+.env.*
+**/*keypair*.json
+**/id.json
+agent/escrow-wallet.json
+**/*.log
+**/node_modules
 node_modules
 storefront/node_modules
 storefront/dist

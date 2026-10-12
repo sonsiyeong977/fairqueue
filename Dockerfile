@@ -1,4 +1,11 @@
-FROM node:20-slim AS storefront-build
+FROM node:22-slim AS storefront-build
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY shared ./shared
+COPY agent/offer-policy.js ./agent/offer-policy.js
+COPY anchor-escrow/idl ./anchor-escrow/idl
 
 WORKDIR /app/storefront
 COPY storefront/package*.json ./
@@ -8,7 +15,7 @@ COPY storefront/src ./src
 COPY storefront/public ./public
 RUN npm run build
 
-FROM node:20-slim
+FROM node:22-slim
 
 WORKDIR /app
 ENV NODE_ENV=production
@@ -17,6 +24,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY agent ./agent
+COPY shared ./shared
 COPY anchor-escrow/idl ./anchor-escrow/idl
 COPY dashboard ./dashboard
 COPY platform-sim ./platform-sim

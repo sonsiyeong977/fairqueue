@@ -1,0 +1,15 @@
+.gcloudignore
+.git
+.gitignore
+.env
+.env.*
+**/*keypair*.json
+**/id.json
+agent/escrow-wallet.json
+**/node_modules
+storefront/dist
+storefront/*.tsbuildinfo
+**/*.log
+anchor-escrow/.anchor
+anchor-escrow/target
+anchor-escrow/test-ledger
