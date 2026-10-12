@@ -953,6 +953,28 @@ h2 {
   font-weight: 800;
   min-height: 28px;
 }
+.seat-map-wrap--tiered .seat-map-head span:first-child {
+  width: min(100%, 470px);
+}
+.seat-map.seat-map--tiered {
+  min-height: 0;
+  grid-template-columns: 1fr;
+  grid-template-rows: none;
+  grid-auto-rows: 76px;
+  gap: 12px;
+}
+.seat-map--tiered .map-zone {
+  grid-column: 1;
+  grid-row: auto;
+  justify-self: center;
+  width: 100%;
+}
+.seat-map--tiered .grade-vip {
+  width: 62%;
+}
+.seat-map--tiered .grade-r {
+  width: 82%;
+}
 .map-zone:hover,
 .map-zone.is-selected {
   outline: 3px solid #193e33;
@@ -1231,6 +1253,20 @@ h2 {
   color: #c1d1c7;
   font-size: 13px;
   padding: 0;
+}
+.auth-page .back-link,
+.my-page .back-link {
+  color: #065a46;
+  min-height: 36px;
+  padding: 6px 0;
+}
+.auth-page .back-link:disabled,
+.my-page .back-link:disabled {
+  color: #66766f;
+}
+.my-page .page-title h1,
+.my-page .page-title p {
+  overflow-wrap: anywhere;
 }
 .handoff-card {
   max-width: 720px;

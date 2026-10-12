@@ -15,6 +15,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      '/auth': 'http://localhost:3001',
+      '/account': 'http://localhost:3001',
       '/catalog': 'http://localhost:3001',
       '/parse-condition': 'http://localhost:3001',
       '/queue': 'http://localhost:3001',

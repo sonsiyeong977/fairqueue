@@ -6,6 +6,16 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 app.use(express.json());
+const { createAccounts } = require("./accounts");
+const accountService = createAccounts({
+  projectId: process.env.FIREBASE_PROJECT_ID,
+  webConfig: require("./firebase-web-config.json"),
+});
+if (accountService.enabled && process.env.FIREBASE_PROJECT_ID !== require("./firebase-web-config.json").projectId) {
+  throw new Error("The frontend and backend Firebase project IDs must match");
+}
+accountService.register(app);
+accountService.protectPlatform(app, () => state);
 app.use("/dashboard", express.static(path.join(__dirname, "..", "dashboard")));
 const storefrontDist = path.join(__dirname, "..", "storefront", "dist");
 app.get("/", (req, res) => res.redirect("/storefront/"));
@@ -844,6 +854,31 @@ function advanceTurns() {
 
 setInterval(advanceTurns, 1000).unref();
 
+async function saveCompletedBooking(eventState, entry) {
+  const result = entry.completed_result;
+  if (!result || !accountService.enabled) return;
+  const performance = catalogBySession.get(eventState.event);
+  const settlement = result.settle_result || {};
+  const order = result.order;
+  await accountService.saveResult(entry.user_id, {
+    queueId: entry.queue_id,
+    eventId: performance?.event.id || eventState.event,
+    sessionId: performance?.session.id || eventState.event,
+    status: order ? "SETTLED" : "REFUNDED",
+    quantity: order?.count || entry.conditions.seat_count,
+    grade: order?.grade || null,
+    zone: order?.zone_label || null,
+    seats: order?.seat_numbers || [],
+    totalKrw: order ? order.price_krw * order.count : 0,
+    txUrl: settlement.explorer_urls?.settle || null,
+    depositTxUrl: settlement.explorer_urls?.fund || null,
+    paymentMode: entry.agent_payment ? "wallet" : "demo",
+    payer: settlement.escrow_user || null,
+    principalLamports: settlement.escrow_amount_lamports || null,
+    completedAt: entry.completed_at || (entry.completed_at = nowIso()),
+  }, entry);
+}
+
 app.get("/health", (req, res) => {
   res.json({ ok: true, service: "fairqueue-platform-sim", time: nowIso() });
 });
@@ -1178,11 +1213,12 @@ app.get("/queue/my-turn", (req, res) => {
   res.json(queueSnapshot(eventState, entry));
 });
 
-app.get("/queue/result", (req, res) => {
+app.get("/queue/result", async (req, res) => {
   const eventState = getOrCreateEvent(req.query.event);
   const entry = findQueueEntry(eventState, req.query);
   if (!entry) return res.status(404).json({ error: "Queue entry not found" });
   if (entry.agent_payment?.payer && entry.agent_payment.payer !== req.query.payer) return res.status(403).json({ error: "Reconnect the payer wallet for this booking" });
+  if (entry.completed_result) await saveCompletedBooking(eventState, entry);
   res.json({ status: entry.status, payment_unknown: Boolean(entry.payment_unknown), payment_rejected_unfunded: Boolean(entry.payment_rejected_unfunded), result: entry.completed_result || null });
 });
 
@@ -1439,6 +1475,7 @@ app.post("/demo/settle-offer", async (req, res) => {
           settle_result: settleResult,
           seat_statuses: seatStatusRows(eventState),
         };
+        await saveCompletedBooking(eventState, entry);
         return res.status(201).json(entry.completed_result);
       }
     }
@@ -1462,6 +1499,7 @@ app.post("/demo/settle-offer", async (req, res) => {
         settle_result: settleResult,
         seat_statuses: seatStatusRows(eventState),
       };
+      await saveCompletedBooking(eventState, entry);
       return res.status(201).json(entry.completed_result);
     }
 
@@ -1476,6 +1514,7 @@ app.post("/demo/settle-offer", async (req, res) => {
       remainingSeats: publicSeatRows(eventState),
       seat_statuses: seatStatusRows(eventState),
     };
+    await saveCompletedBooking(eventState, entry);
     res.status(201).json(entry.completed_result);
   } catch (error) {
     if (error.paymentRequired) {

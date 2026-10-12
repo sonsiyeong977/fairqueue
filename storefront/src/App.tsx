@@ -31,6 +31,7 @@ import {
   type Session,
   type Zone,
 } from "./data";
+import { accountRequest, loginAccount, logoutAccount, resetPassword, refreshAccount, resendVerification, watchAccount, type AccountUser } from "./auth";
 
 type CatalogAvailability = {
   events: Array<{
@@ -69,11 +70,9 @@ function withAvailability(snapshot: CatalogAvailability): Event[] {
   });
 }
 
-type DemoUser = { name: string; email: string };
-const USER_KEY = "fairqueue-storefront-demo-user";
+type DemoUser = AccountUser;
 const RECENT_KEY = "fairqueue-storefront-recent";
 const SAVED_KEY = "fairqueue-storefront-saved";
-const BOOKINGS_KEY = "fairqueue-storefront-bookings";
 
 type BookingRecord = {
   queueId: string;
@@ -93,14 +92,6 @@ type BookingRecord = {
   completedAt: string;
 };
 
-function readUser(): DemoUser | null {
-  try {
-    const value = localStorage.getItem(USER_KEY);
-    return value ? (JSON.parse(value) as DemoUser) : null;
-  } catch {
-    return null;
-  }
-}
 function readIds(key: string): string[] {
   try {
     const value = localStorage.getItem(key);
@@ -109,16 +100,8 @@ function readIds(key: string): string[] {
     return [];
   }
 }
-function readBookings(key: string): BookingRecord[] {
-  try {
-    const value = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(value) ? value : [];
-  } catch {
-    return [];
-  }
-}
 function userKey(base: string, user: DemoUser) {
-  return `${base}:${user.email.toLowerCase()}`;
+  return `${base}:${user.uid}`;
 }
 
 function Brand() {
@@ -223,7 +206,7 @@ function Footer() {
         </div>
         <div>
           <span>PLEASE NOTE</span>
-          <p>Events and accounts shown here are fictional prototype data.</p>
+          <p>Fictional performances. Devnet test payments.</p>
           <p>© 2026 FairQueue</p>
         </div>
       </div>
@@ -533,13 +516,15 @@ function SeatMap({
   selected: string | null;
   onSelect: (id: string) => void;
 }) {
+  const grades = [...new Set(zones.map((zone) => zone.grade))];
+  const tiered = grades.length === zones.length;
   return (
-    <div className="seat-map-wrap">
+    <div className={`seat-map-wrap${tiered ? " seat-map-wrap--tiered" : ""}`}>
       <div className="seat-map-head">
         <span>STAGE</span>
         <span>Seating zones</span>
       </div>
-      <div className="seat-map" role="group" aria-label="Choose a seating zone">
+      <div className={`seat-map${tiered ? " seat-map--tiered" : ""}`} role="group" aria-label="Choose a seating zone">
         {zones.map((zone) => (
           <button
             key={zone.id}
@@ -554,21 +539,12 @@ function SeatMap({
         ))}
       </div>
       <div className="map-legend">
-        <span>
-          <i className="legend-vip" /> VIP
-        </span>
-        <span>
-          <i className="legend-r" /> R
-        </span>
-        <span>
-          <i className="legend-s" /> S
-        </span>
-        <span>
-          <i className="legend-a" /> A
-        </span>
-        <span>
+        {grades.map((grade) => <span key={grade}>
+          <i className={`legend-${grade.toLowerCase()}`} /> {grade}
+        </span>)}
+        {zones.some((zone) => zone.remaining === 0) && <span>
           <i className="legend-sold" /> Sold out
-        </span>
+        </span>}
       </div>
     </div>
   );
@@ -942,16 +918,30 @@ function Auth({
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
-  const returnTo =
-    (location.state as { returnTo?: string } | null)?.returnTo || "/my";
-  function submit(e: React.FormEvent) {
+  const requestedReturn = (location.state as { returnTo?: string } | null)?.returnTo;
+  const returnTo = typeof requestedReturn === "string" && /^\/(my|events(?:\/[^\\?#]*)?)$/.test(requestedReturn)
+    ? requestedReturn : "/my";
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const localName = mode === "signup" ? name.trim() : email.split("@")[0];
-    if (!localName || !email.includes("@") || password.length < 6) return;
-    onLogin({ name: localName, email: email.trim() });
-    navigate(returnTo);
+    if (busy) return;
+    setBusy(true); setMessage("");
+    try {
+      const account = await loginAccount(email, password, mode === "signup" ? name.trim() : undefined);
+      onLogin(account);
+      navigate(account.emailVerified ? returnTo : "/my");
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      setMessage(code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found"
+        ? "The email or password is incorrect."
+        : code === "auth/email-already-in-use" ? "This email already has an account. Log in instead."
+        : code === "auth/too-many-requests" ? "Too many attempts. Please try again later."
+        : code === "auth/weak-password" ? "Choose a stronger password."
+        : error instanceof Error ? error.message : "Sign-in failed. Please try again.");
+    } finally { setBusy(false); }
   }
   return (
     <main className="auth-page">
@@ -967,9 +957,10 @@ function Auth({
         <form onSubmit={submit}>
           {mode === "signup" && (
             <label>
-              Name
+              Username
               <input
                 required
+                maxLength={60}
                 autoComplete="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -1002,8 +993,9 @@ function Auth({
               placeholder="At least 6 characters"
             />
           </label>
-          <button className="book-button" type="submit">
-            {mode === "login" ? "Continue with demo account" : "Create demo account"}{" "}
+          {message && <p role="status">{message}</p>}
+          <button className="book-button" type="submit" disabled={busy}>
+            {busy ? "Please wait..." : mode === "login" ? "Log in" : "Create account"}{" "}
             <ArrowRight size={18} />
           </button>
         </form>
@@ -1016,18 +1008,35 @@ function Auth({
             {mode === "login" ? "Sign up" : "Log in"}
           </Link>
         </p>
-        <p className="auth-disclaimer">
-          Demo profiles are stored only in this browser. Passwords are not
-          verified or saved. This profile does not authenticate or connect a wallet;
-          Devnet payment approval is a separate step during booking.
-        </p>
+        {mode === "login" && <button type="button" className="back-link" disabled={busy} onClick={async () => {
+          if (!email.includes("@")) { setMessage("Enter your email address first."); return; }
+          setBusy(true);
+          try { await resetPassword(email); setMessage("If an account exists, a password reset email will arrive shortly."); }
+          catch { setMessage("The reset email could not be sent. Please try again later."); }
+          finally { setBusy(false); }
+        }}>Forgot password?</button>}
       </div>
     </main>
   );
 }
 
-function MyPage({ user }: { user: DemoUser | null }) {
+function MyPage({ user, onUser, onLogout }: { user: DemoUser | null; onUser: (user: DemoUser) => void; onLogout: () => void }) {
   const events = useCatalog();
+  const [bookings, setBookings] = useState<BookingRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [verificationMessage, setVerificationMessage] = useState("");
+  const [verificationBusy, setVerificationBusy] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setBookings([]); setLoading(true); setError("");
+    if (user) accountRequest("/account/bookings")
+      .then((data) => { if (active) setBookings(data.bookings); })
+      .catch((reason) => { if (active) setError(reason.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [user?.uid, attempt]);
   if (!user)
     return <Navigate to="/login" state={{ returnTo: "/my" }} replace />;
   const recent = readIds(userKey(RECENT_KEY, user))
@@ -1036,19 +1045,35 @@ function MyPage({ user }: { user: DemoUser | null }) {
   const saved = readIds(userKey(SAVED_KEY, user))
     .map((id) => events.find((event) => event.id === id))
     .filter((event): event is Event => !!event);
-  const bookings = readBookings(userKey(BOOKINGS_KEY, user));
   return (
     <main className="container my-page">
       <div className="page-title">
         <p className="eyebrow">MY FAIRQUEUE</p>
         <h1>{user.name}'s FairQueue</h1>
         <p>{user.email}</p>
+        <button className="back-link" onClick={onLogout}>Log out</button>
+        {!user.emailVerified && <div>
+          <p>Verify your email before booking tickets.</p>
+          <button className="back-link" disabled={verificationBusy} onClick={async () => {
+            setVerificationBusy(true);
+            try { await resendVerification(); setVerificationMessage("Verification email sent. Check your inbox."); }
+            catch { setVerificationMessage("The email could not be sent. Please try again later."); }
+            finally { setVerificationBusy(false); }
+          }}>Resend verification email</button>
+          <button className="back-link" disabled={verificationBusy} onClick={async () => {
+            setVerificationBusy(true);
+            try { const refreshed = await refreshAccount(); onUser(refreshed); setVerificationMessage(refreshed.emailVerified ? "Email verified." : "Email is not verified yet."); }
+            catch { setVerificationMessage("Verification could not be checked. Please try again."); }
+            finally { setVerificationBusy(false); }
+          }}>Check verification</button>
+          {verificationMessage && <p role="status">{verificationMessage}</p>}
+        </div>}
       </div>
       <section>
         <div className="section-heading">
           <h2>My bookings</h2>
         </div>
-        {bookings.length ? (
+        {loading ? <p role="status">Loading bookings...</p> : error ? <div role="alert"><p>{error}</p><button className="back-link" onClick={() => setAttempt(attempt + 1)}>Retry</button></div> : bookings.length ? (
           <div className="booking-history">
             {bookings.map((booking) => {
               const event = events.find((item) => item.id === booking.eventId);
@@ -1075,7 +1100,7 @@ function MyPage({ user }: { user: DemoUser | null }) {
                 </article>
               );
             })}
-            <p className="booking-history-note">Demo activity saved on this browser only. These are Devnet transactions, not issued tickets.</p>
+            <p className="booking-history-note">Devnet transactions, not issued tickets.</p>
           </div>
         ) : (
           <div className="empty-state compact">
@@ -1138,7 +1163,8 @@ function BookingHandoff({ user }: { user: DemoUser | null }) {
   }, []);
   useEffect(() => {
     if (user && event && intent?.eventId === eventId) {
-      sessionStorage.setItem("fairqueue-booking-intent", JSON.stringify({ ...intent, userEmail: user.email }));
+      if (!user.emailVerified) { navigate("/my"); return; }
+      sessionStorage.setItem("fairqueue-booking-intent", JSON.stringify({ ...intent, userId: user.uid }));
       window.location.replace("/dashboard/portal.html");
     }
   }, [user, event, intent, eventId]);
@@ -1189,7 +1215,22 @@ function ScrollTop() {
   return null;
 }
 export default function App() {
-  const [user, setUser] = useState<DemoUser | null>(readUser);
+  const [user, setUser] = useState<DemoUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
+  useEffect(() => {
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    const failed = (error: Error) => {
+      if (active) { setUser(null); setAuthLoading(false); setAuthError(error.message); }
+    };
+    watchAccount((account) => {
+      if (active) { setUser(account); setAuthLoading(false); setAuthError(""); }
+    }, failed).then((stop) => {
+      if (!active) stop(); else unsubscribe = stop;
+    }).catch(failed);
+    return () => { active = false; unsubscribe?.(); };
+  }, []);
   const [catalogEvents, setCatalogEvents] = useState(events);
   useEffect(() => {
     let active = true;
@@ -1211,17 +1252,23 @@ export default function App() {
     };
   }, []);
   function login(next: DemoUser) {
-    localStorage.setItem(USER_KEY, JSON.stringify(next));
     setUser(next);
+    setAuthError("");
   }
-  function logout() {
-    localStorage.removeItem(USER_KEY);
-    setUser(null);
+  async function logout() {
+    try {
+      await logoutAccount(); setUser(null);
+      sessionStorage.removeItem("fairqueue-booking-intent");
+      sessionStorage.removeItem("fairqueue-active-queue");
+    }
+    catch { setAuthError("Logout failed. Please try again."); }
   }
+  if (authLoading) return <main className="container"><p role="status">Loading FairQueue...</p></main>;
   return (
     <CatalogContext.Provider value={catalogEvents}>
       <ScrollTop />
       <Header user={user} onLogout={logout} />
+      {authError && <p className="container" role="alert">{authError}</p>}
       <Routes>
         <Route path="/" element={<Home user={user} />} />
         <Route path="/events" element={<EventsPage />} />
@@ -1235,7 +1282,7 @@ export default function App() {
           path="/signup"
           element={<Auth mode="signup" onLogin={login} />}
         />
-        <Route path="/my" element={<MyPage user={user} />} />
+        <Route path="/my" element={<MyPage user={user} onUser={login} onLogout={logout} />} />
         <Route
           path="*"
           element={

@@ -37,8 +37,8 @@ Transactions use Devnet test SOL; KRW values are reference ticket prices.
 3. **Review the interpretation.** Gemini structures a primary rule and ordered
    alternatives. The buyer checks sections, price caps, quantity, adjacency,
    split-seat permission, and restricted-view preferences.
-4. **Choose a payment method.** Use the server demo wallet or connect a buyer
-   wallet through Wallet Standard on Solana Devnet.
+4. **Prepare your account and wallet.** Sign in with a verified Firebase account
+   and connect a buyer wallet through Wallet Standard on Solana Devnet.
 5. **Join the platform queue.** The buyer waits for the assigned turn. Seat
    parsing does not reserve inventory.
 6. **Validate the offer.** At the queue turn, the platform creates a seat hold and
@@ -91,11 +91,13 @@ Solana Devnet Anchor Escrow
     |-- refund: return principal to the buyer
     |
     v
-Result + Explorer Links + Browser-Local Booking History
+Result + Explorer Links + Account Booking History in Firestore
 ```
 
 The platform API manages queue, inventory, hold, and order state in its process.
-The storefront stores demo profiles and booking history in the browser. Escrow
+Firebase verifies email/password accounts. The platform validates ID tokens and
+uses the authenticated UID for queue ownership, profiles, and Firestore booking
+history. Saved and recently viewed events remain browser-local, keyed by UID. Escrow
 deposits, releases, and refunds are recorded on-chain.
 
 ### x402 Escrow Payments
@@ -131,6 +133,8 @@ fee. The refund demonstration creates a test deposit even when no offer matches.
 | Storefront | Vite, React, TypeScript, React Router, Lucide icons |
 | Booking session and dashboard | HTML, CSS, JavaScript |
 | Platform and settlement APIs | Node.js, Express |
+| Account authentication | Firebase Authentication, server-side ID token verification |
+| Profiles and booking history | Cloud Firestore, Firebase Admin SDK |
 | Browser wallet connection | Wallet Standard, Solana transaction signing |
 | Agent payment protocol | `@x402/core`, `@x402/fetch`, custom escrow scheme |
 | On-chain escrow | Solana Devnet, Anchor, Rust, PDA accounts |
@@ -151,7 +155,7 @@ fee. The refund demonstration creates a test deposit even when no offer matches.
 ### Install and Build
 
 ```bash
-git clone --branch ver2 https://github.com/sonsiyeong977/fairqueue.git
+git clone --branch main https://github.com/sonsiyeong977/fairqueue.git
 cd fairqueue
 npm install
 npm --prefix storefront install
@@ -169,6 +173,7 @@ SOLANA_CLUSTER=devnet
 SETTLE_SERVER_URL=http://localhost:4000
 SETTLE_API_KEY=your_long_shared_server_secret
 X402_ESCROW_ENABLED=true
+FIREBASE_PROJECT_ID=fairqueue-511412
 
 # Optional: defaults to ~/.config/solana/id.json
 # AGENT_KEYPAIR_PATH=/absolute/path/to/backend-keypair.json
@@ -180,6 +185,12 @@ X402_ESCROW_ENABLED=true
 Both services must use the same `SETTLE_API_KEY`. Keep API keys, keypair files,
 and wallet recovery phrases out of source control. The backend keypair acts as
 escrow authority; the connected buyer wallet signs its own deposit.
+
+Account setup is described in [Firebase Accounts](docs/ACCOUNT-SETUP.md). Enable
+email/password authentication, register the storefront hostname, and configure
+server access to the Firebase project. Local Firestore access requires authorized
+Application Default Credentials or emulators; the web API key is not a server
+credential. The Cloud Run platform runtime uses its service account identity.
 
 ### Start Both Services
 

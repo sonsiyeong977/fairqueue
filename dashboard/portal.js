@@ -1,3 +1,4 @@
+import '/storefront/booking-wallet.js';
 const overlay = document.getElementById('overlay');
 const body = document.getElementById('modalBody');
 const intentKey = 'fairqueue-booking-intent';
@@ -12,7 +13,8 @@ let pollTimer = null;
 let busy = false;
 let result = null;
 let settlementError = null;
-let paymentMode = 'demo';
+let paymentMode = 'wallet';
+let accountUser = null;
 let buyerAddress = null;
 let walletPhase = '';
 let walletQuote = null;
@@ -26,7 +28,7 @@ const html = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
 const money = (value) => 'KRW ' + Number(value || 0).toLocaleString('en-US');
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await window.FairQueueAuth.fetch(path, {
     headers: { 'Content-Type': 'application/json' },
     ...options
   });
@@ -170,7 +172,6 @@ function renderParsed() {
     '<div class="parsed-row"><span class="k">Quantity</span><span class="v">', parsed.seat_count, '</span></div>',
     '</div>',
     '<fieldset class="payment-options"><legend>Payment method</legend>',
-    '<label><input type="radio" name="paymentMode" value="demo"', paymentMode === 'demo' ? ' checked' : '', '>Server demo wallet</label>',
     '<label><input type="radio" name="paymentMode" value="wallet"', paymentMode === 'wallet' ? ' checked' : '', '>My wallet &middot; Devnet</label></fieldset>',
     '<div id="walletPane" class="wallet-pane"', paymentMode === 'wallet' ? '' : ' hidden', '></div>',
     '<p class="flow-note">', paymentMode === 'wallet'
@@ -281,6 +282,7 @@ function renderSettlement() {
     paymentMode === 'wallet' && settlement.escrow_amount_lamports ? '<div class="parsed-card"><div class="parsed-row"><span class="k">' + (settled ? 'Escrow principal released' : 'Principal returned to buyer') + '</span><span class="v">' + sol(settlement.escrow_amount_lamports) + '</span></div></div>' : '',
     '<div class="reasoning-banner"><b>Offer review</b><br>' + html(offerReview) + '</div>',
     '<p class="flow-note">Independent verification: ' + html(verificationReview) + '</p>',
+    result.history_sync_pending ? '<p class="flow-error">Payment completed, but account history is not saved yet. Keep the transaction links. Do not pay again.</p><button class="ghost-btn" data-action="payment-status">Retry history sync</button>' : '',
     '<div class="tx-card"><div class="tlabel">DEPOSIT TX</div><div class="thash">',
     html(settlement.fund_tx || '-'), '</div></div>',
     '<div class="tx-card"><div class="tlabel">', settled ? 'RELEASE TX' : 'REFUND TX',
@@ -306,31 +308,8 @@ function render(snapshot) {
 }
 
 function saveBookingHistory() {
-  try {
-    const profile = JSON.parse(localStorage.getItem('fairqueue-storefront-demo-user') || 'null');
-    if (!profile?.email || !booking || !result) return;
-    const key = 'fairqueue-storefront-bookings:' + profile.email.toLowerCase();
-    const history = JSON.parse(localStorage.getItem(key) || '[]');
-    if (history.some((item) => item.queueId === queueId)) return;
-    history.unshift({
-      queueId,
-      eventId: booking.event.id,
-      sessionId: booking.session.id,
-      status: result.order ? 'SETTLED' : 'REFUNDED',
-      quantity: result.order?.count || parsed?.seat_count || booking.intent.quantity,
-      grade: result.order?.grade || null,
-      zone: result.order?.zone_label || null,
-      seats: result.order?.seat_numbers || [],
-      totalKrw: result.order ? result.order.price_krw * result.order.count : 0,
-      txUrl: result.settle_result?.explorer_urls?.settle || null,
-      paymentMode, payer: buyerAddress,
-      depositTxUrl: result.settle_result?.explorer_urls?.fund || null,
-      principalLamports: result.settle_result?.escrow_amount_lamports || null,
-      completedAt: new Date().toISOString(),
-    });
-    localStorage.setItem(key, JSON.stringify(history.slice(0, 30)));
-  } catch {
-    // Browser-local history is optional; it must never block settlement.
+  if (result?.history_sync_pending) {
+    settlementError = 'Payment completed, but account history could not be saved. Keep the transaction links and check existing payment to retry saving. Do not pay again.';
   }
 }
 
@@ -402,12 +381,12 @@ async function joinQueue() {
   button.disabled = true;
   button.textContent = 'Joining queue...';
   try {
-    const userId = 'demo-' + (crypto.randomUUID?.() || Math.random().toString(36).slice(2));
+    const userId = accountUser.uid;
     const snapshot = await post('/queue/join', {
       event: booking.session.id, user_id: userId, conditions: parsed
     });
     queueId = snapshot.queue_id;
-    sessionStorage.setItem(queueKey, JSON.stringify({ sessionId: booking.session.id, queueId, paymentMode, payer: buyerAddress, conditions: parsed }));
+    sessionStorage.setItem(queueKey, JSON.stringify({ userId: accountUser.uid, sessionId: booking.session.id, queueId, paymentMode, payer: buyerAddress, conditions: parsed }));
     stageIndex = 2;
     render(snapshot);
     schedulePoll();
@@ -557,9 +536,9 @@ document.addEventListener('keydown', (event) => { if (event.key === 'Escape') cl
       throw new Error('Invalid event, performance, or ticket quantity');
     }
     booking = { event, session, intent };
-    const profile = JSON.parse(localStorage.getItem('fairqueue-storefront-demo-user') || 'null');
-    if (!profile?.email || profile.email.toLowerCase() !== intent.userEmail?.toLowerCase()) {
-      throw new Error('Sign in with the profile used to start this booking');
+    accountUser = await window.FairQueueAuth.currentAccount();
+    if (accountUser.uid !== intent.userId) {
+      throw new Error('Sign in with the account used to start this booking');
     }
     document.title = 'FairQueue · ' + event.title;
     document.getElementById('eventChipName').textContent = event.title;
@@ -574,9 +553,9 @@ document.addEventListener('keydown', (event) => { if (event.key === 'Escape') cl
         : 'Tickets are not on sale for this performance yet.';
     }
     const active = JSON.parse(sessionStorage.getItem(queueKey) || 'null');
-    if (active?.sessionId === session.id && active.queueId) {
+    if (active?.userId === accountUser.uid && active.sessionId === session.id && active.queueId) {
       queueId = active.queueId;
-      paymentMode = active.paymentMode || 'demo'; buyerAddress = active.payer || null; parsed = active.conditions || null;
+      paymentMode = 'wallet'; buyerAddress = active.payer || null; parsed = active.conditions || null;
       stageIndex = 2;
       openModal();
     }

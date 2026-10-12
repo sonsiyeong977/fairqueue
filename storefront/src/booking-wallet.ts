@@ -7,6 +7,7 @@ import { SolanaSignTransaction, type SolanaSignTransactionFeature } from '@solan
 import { x402Client, wrapFetchWithPayment } from '@x402/fetch';
 import type { PaymentRequirements } from '@x402/core/types';
 import { EscrowPaymentPolicy, demoDepositLamports, NETWORK, SCHEME, ASSET } from '../../shared/escrow-payment-policy';
+import { authenticatedFetch } from './auth';
 
 globalThis.Buffer = Buffer;
 type Conditions = { primary: { max_price_krw: number }; fallback_rules: { max_price_krw: number }[]; seat_count: number };
@@ -26,7 +27,7 @@ const notify = () => window.dispatchEvent(new CustomEvent('fairqueue-wallet-chan
 registry.on('register', notify);
 registry.on('unregister', notify);
 async function json(path: string) {
-  const response = await fetch(path);
+  const response = await authenticatedFetch(path);
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Wallet service unavailable');
   return data;
@@ -103,7 +104,7 @@ async function settle(options: { event: string; queueId: string; conditions: Con
       return { x402Version: 2, payload: { transaction: Buffer.from(signed.signedTransaction).toString('base64') } };
     },
   });
-  const response = await wrapFetchWithPayment(fetch, client)('/demo/settle-offer', {
+  const response = await wrapFetchWithPayment(authenticatedFetch, client)('/demo/settle-offer', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ event: options.event, queue_id: options.queueId, payer: options.payer, payment_mode: 'x402' }),
   });
