@@ -347,4 +347,4 @@ fairqueue/
 | Name | Role |
 |:---|:---|
 | Seeun Park | PM · Frontend · UI/UX · Auth · Integration |
-| Siyeong Son | PM · Backend · AI · On-chain |
+| Siyeong Son | PM · Backend · UI/UX · AI · On-chain |
