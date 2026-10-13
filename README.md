@@ -60,8 +60,6 @@ Devnet test SOL and unlock the extension before starting.
 4. **Review the interpretation.** Gemini structures a primary rule and ordered
    alternatives. The buyer checks sections, price caps, quantity, adjacency,
    split-seat permission, and restricted-view preferences.
-   If Gemini is unavailable, the interface identifies the basic-parser result;
-   review every condition before proceeding.
 5. **Connect your wallet.** Connect a buyer wallet through Wallet Standard on
    Solana Devnet and check its address and test SOL balance.
 6. **Join the platform queue.** The buyer waits for the assigned turn. Seat
@@ -79,20 +77,43 @@ Devnet test SOL and unlock the extension before starting.
     authenticated user's Firestore booking history. Saved performances and recently
     viewed events are also available in My Account, with browser-local storage.
 
-### Natural-Language Example
+### Entering Conditions and Alternatives
+
+Use **natural language, the selection controls, or both**. You do not need to
+enter the same alternative twice.
+
+| Input method | How to use it |
+|:---|:---|
+| Natural language only | Describe the first choice and alternatives in the text box. Leave the alternative control unselected; it is not required to confirm alternatives written in the request. |
+| Controls only | Leave the text box empty and select a first-choice section, quantity, price cap, and optional alternative. |
+| Both | Use controls for details not specified in the text. Explicit natural-language instructions take precedence. |
+
+If the text does not discuss alternatives, the selected alternative control is
+retained. If the text explicitly lists alternatives, only those alternatives are
+used, in the stated order. Writing **No alternatives** excludes alternatives even
+when an alternative is selected in the controls.
+
+The selection controls provide one alternative. Natural-language requests can
+express **up to four ordered alternatives**, including three rather than just two.
+Each rule can have its own section or grade, per-ticket price cap, adjacency,
+split-seat permission, and restricted-view condition. Always check every rule on
+the review screen before joining the queue.
+
+### Example with Three Alternatives
 
 ```text
-Avoid restricted-view seats. First, find 2 adjacent seats in VIP A,
-up to KRW 176,000 per ticket. If unavailable, try VIP B at the same
-price limit; separate seats are acceptable. If that also fails,
-find 2 adjacent seats in R 1, up to KRW 154,000 per ticket.
-Do not accept any other sections or exceed these price limits.
+Find 2 adjacent R seats, up to KRW 160,000 per ticket.
+If unavailable, accept 2 separate R seats at the same price limit.
+If neither R option is available, try 2 adjacent S seats,
+up to KRW 140,000 per ticket.
+If all previous options are unavailable, accept 2 adjacent A seats,
+up to KRW 120,000 per ticket.
+Avoid restricted-view seats for every option.
+Do not accept any other alternatives.
 ```
 
-Each alternative has its own conditions and priority. When a request omits
-alternatives, the selected controls supply them. Explicit instructions such as
-`No alternatives` override the alternative controls. Buyers review the structured
-request before entering the queue.
+For ORBIT/9, this request defines a first choice of adjacent R seats, followed by
+three alternatives: separate R seats, adjacent S seats, then adjacent A seats.
 
 ## Architecture
 
@@ -323,6 +344,7 @@ fairqueue/
 
 ## Team
 
-## License
-
-Package metadata declares `ISC`.
+| Name | Role |
+|:---|:---|
+| Seeun Park | PM · Frontend · UI/UX · Auth · Integration |
+| Siyeong Son | PM · Backend · AI · On-chain |
